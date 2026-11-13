@@ -7,46 +7,45 @@
 }:
 
 {
-  # https://devenv.sh/basics/
-  # env.GREET = "devenv";
+  # https://devenv.sh/languages/
+  ## Node.js runtime and npm for the plugin, its dependencies, and its tests.
+  languages.javascript = {
+    enable = true;
+    package = pkgs.nodejs_24;
+    lsp.enable = false;
+    npm.enable = true;
+  };
+  ## tsc and the TypeScript language server.
+  languages.typescript.enable = true;
 
   # https://devenv.sh/packages/
-  # packages = [ pkgs.git ];
-
-  # https://devenv.sh/languages/
-  # languages.rust.enable = true;
-
-  # https://devenv.sh/processes/
-  # processes.dev.exec = "${lib.getExe pkgs.watchexec} -n -- ls -la";
-
-  # https://devenv.sh/services/
-  # services.postgres.enable = true;
-
-  # https://devenv.sh/scripts/
-  # scripts.hello.exec = ''
-  #   echo hello from $GREET
-  # '';
-
-  # https://devenv.sh/basics/
-  # enterShell = ''
-  #   hello         # Run scripts directly
-  #   git --version # Use packages
-  # '';
-
-  # https://devenv.sh/tasks/
-  # tasks = {
-  #   "myproj:setup".exec = "mytool build";
-  #   "devenv:enterShell".after = [ "myproj:setup" ];
-  # };
+  # Formatter and linter for TypeScript, JavaScript, and JSON.
+  packages = [ pkgs.biome ];
 
   # https://devenv.sh/tests/
+  # Enable once package.json defines a test script.
   # enterTest = ''
-  #   echo "Running tests"
-  #   git --version | grep --color=auto "${pkgs.git.version}"
+  #   npm test
   # '';
 
   # https://devenv.sh/git-hooks/
-  # git-hooks.hooks.shellcheck.enable = true;
+  git-hooks.hooks = {
+    # Standard checks.
+    check-added-large-files.enable = true;
+    check-json.enable = true;
+    check-symlinks.enable = true;
+    check-yaml.enable = true;
+    end-of-file-fixer.enable = true;
+    markdownlint = {
+      enable = true;
+      # README uses long lines and unlabelled diagrams.
+      args = [ "--disable" "MD013,MD040" ];
+    };
+    yamlfmt.enable = true;
+
+    # TypeScript, JavaScript, JSON.
+    biome.enable = true;
+  };
 
   # See full reference at https://devenv.sh/reference/options/
 }
