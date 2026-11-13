@@ -207,7 +207,7 @@ Config changes reload plugins without a restart.
 
 ## Development
 
-`devenv` manages the environment; `node` is not installed yet. Planned modules:
+`devenv` manages the environment and provides Node.js 24, npm, TypeScript, and Biome. Planned modules:
 
 ```
 src/index.ts          Plugin.define, wiring, cleanup registration

@@ -23,10 +23,10 @@
   packages = [ pkgs.biome ];
 
   # https://devenv.sh/tests/
-  # Enable once package.json defines a test script.
-  # enterTest = ''
-  #   npm test
-  # '';
+  # `devenv test` runs this and the git hooks. Node 24 runs TypeScript tests directly.
+  enterTest = ''
+    node --test
+  '';
 
   # https://devenv.sh/git-hooks/
   git-hooks.hooks = {
