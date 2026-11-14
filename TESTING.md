@@ -12,19 +12,6 @@ bullet should map to at least one test, and every test name should say which beh
 Unit tests cover the first. A fake context and the TypeScript compiler cover the second. A small number of live checks
 cover the third. Do not use a real language model in any automated test.
 
-## Toolchain
-
-- Test runner: `node:test` under Node.js 24. `node --test` discovers `test/**/*.test.ts` and runs TypeScript directly.
-- Type checking: `tsc --noEmit`. Biome does not type check, so this must be a separate step.
-- Linting and formatting: `biome check .`.
-- Full local check: `devenv test`, which runs `enterTest` and the git hooks.
-
-Add `tsc --noEmit` to `enterTest` in `devenv.nix` alongside `node --test`. A plugin that compiles against the wrong
-hook signature is a silent runtime failure, and Biome will not catch it.
-
-Pin `@opencode/plugin` to the server version you target. The installed CLI is `2.2.6`; npm `latest` is `2.3.0`. Test
-upgrades deliberately with a live smoke test, not by floating the dependency.
-
 ## Test layout
 
 ```text
@@ -38,11 +25,11 @@ test/
   sweep.test.ts
   lifecycle.test.ts
   plugin.test.ts
-  live/                opt-in, not part of `node --test`
+  live/                opt-in; `*.live.ts`, not in the default run
 ```
 
-`test/live/` is excluded from the default run because it needs a real server. Keep it runnable with an explicit
-command and run it before a release.
+`test/live/` is excluded from the default run because it needs a real server. Name live files `*.live.ts` so the
+default glob skips them, keep them runnable with `npm run test:live`, and run them before a release.
 
 ## Testability rules for `src/`
 
@@ -204,7 +191,8 @@ That last test is a regression guard for the design decision in the README.
 
 ## Layer 3: live checks
 
-These are opt-in, not part of `node --test`. Run them before a release and after an OpenCode upgrade.
+These are opt-in and not matched by the default test glob. Run them with `npm run test:live` before a release and after
+an OpenCode upgrade.
 
 1. **Instruction visibility.** Load a second probe plugin after this one. Its `context` hook sees the system parts
    after the first plugin rewrote them. Persist the parts and assert the session directory is present. Also assert the
@@ -299,15 +287,8 @@ concurrent sessions are testable state here and have no analogue there.
 
 ## Coverage
 
-Target 80% for lines, functions, and branches in `src/`. Use Node's built-in coverage:
-
-```sh
-node --test --experimental-test-coverage \
-  --test-coverage-include='src/**' \
-  --test-coverage-lines=80 \
-  --test-coverage-functions=80 \
-  --test-coverage-branches=80
-```
+Target 80% for lines, functions, and branches in `src/`. Run `npm run test:coverage`; the thresholds are defined in
+`package.json`.
 
 Do not chase 100%. The untested remainder should be defensive logging and timer wiring, and that should be visible in
 the suite headers.

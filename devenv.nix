@@ -24,8 +24,14 @@
 
   # https://devenv.sh/tests/
   # `devenv test` runs this and the git hooks. Node 24 runs TypeScript tests directly.
+  # Install only when node_modules is missing or older than the lockfile; an unconditional
+  # `npm ci` would reinstall on every test.
   enterTest = ''
-    node --test
+    if [ ! -f node_modules/.package-lock.json ] || [ package-lock.json -nt node_modules/.package-lock.json ]; then
+      npm ci --no-audit --no-fund
+    fi
+    tsc --noEmit
+    node --test 'test/**/*.test.ts'
   '';
 
   # https://devenv.sh/git-hooks/

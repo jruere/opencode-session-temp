@@ -1,0 +1,23 @@
+{
+	"$schema": "https://json.schemastore.org/package.json",
+	"name": "opencode-session-temp",
+	"version": "0.0.0",
+	"private": true,
+	"type": "module",
+	"engines": {
+		"node": ">=24"
+	},
+	"scripts": {
+		"test": "node --test 'test/**/*.test.ts'",
+		"test:live": "node --test 'test/live/*.live.ts'",
+		"test:coverage": "node --test --experimental-test-coverage --test-coverage-include='src/**' --test-coverage-lines=80 --test-coverage-functions=80 --test-coverage-branches=80 'test/**/*.test.ts'",
+		"typecheck": "tsc --noEmit",
+		"check": "biome check ."
+	},
+	"dependencies": {
+		"@opencode/plugin": "2.2.6"
+	},
+	"devDependencies": {
+		"@types/node": "24.19.2"
+	}
+}

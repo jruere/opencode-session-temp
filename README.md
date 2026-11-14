@@ -207,7 +207,10 @@ Config changes reload plugins without a restart.
 
 ## Development
 
-`devenv` manages the environment and provides Node.js 24, npm, TypeScript, and Biome. Planned modules:
+`@opencode/plugin` is pinned to the targeted server version in `package.json` (`2.2.6`); upgrade it deliberately
+with the live checks in `TESTING.md`, not by floating the dependency.
+
+Module layout:
 
 ```
 src/index.ts          Plugin.define, wiring, cleanup registration
@@ -217,5 +220,4 @@ src/enforce.ts        permission hook
 src/sweep.ts          age-based cleanup and lifecycle handlers
 ```
 
-Tests use `node:test`, one setup/execution/assertions paragraph per test, `subject` for the value under test, and
-`test_when_{scenario}_then_it_{expected outcome}` names.
+See `TESTING.md` for the test plan.
