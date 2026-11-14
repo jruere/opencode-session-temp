@@ -11,14 +11,15 @@
 
 ## Environment
 
-- When `DEVENV_ROOT` is set, the devenv shell is active. Run `node`, `npm`, `tsc`, and `biome` directly, not through `devenv shell`.
+- When `DEVENV_ROOT` is set, the devenv shell is active. For ad hoc work, run `node`, `npm`, `tsc`, and `biome` directly, not through `devenv shell`.
 - Use npm, not pnpm or yarn.
 - `.pre-commit-config.yaml` is a generated symlink into the Nix store and is gitignored. Never edit it; change `devenv.nix`.
 
 ## Verification
 
-- Run `devenv --no-tui test`. It runs tests, linters, and formatters via the pre-commit hooks.
-- `devenv test` prints `devenv:enterTest (no command)` even when `enterTest` runs. Treat that label as cosmetic; the command still executes.
+- Run `devenv --no-tui test` for every verification pass. It runs the `enterTest` command and the pre-commit hooks, including tests, linters, and formatters.
+- Do not run `node --test`, `tsc`, `biome`, or individual hook commands as a substitute for `devenv --no-tui test`. They are not equivalent: they skip the configured hooks and their order. Run one of them only to debug a failure that `devenv --no-tui test` already reported.
+- `devenv --no-tui test` prints `devenv:enterTest (no command)` even when `enterTest` runs. Treat that label as cosmetic; the command still executes.
 - Tests use `node:test`. Each test is three paragraphs: setup, execution, assertions. Assign the value under test to `subject`. Name tests `test_when_{scenario}_then_it_{expected outcome}`.
 
 ## Architecture constraints
