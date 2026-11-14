@@ -31,7 +31,7 @@
 - `devenv test` prints `devenv:enterTest (no command)` even when `enterTest` runs. Treat that label as cosmetic;
   the command still executes.
 - Tests use `node:test`. Each test is three paragraphs: setup, execution, assertions. Assign the value being tested to
-  `subject`. Name tests `test_when_{scenario}_then_it_{expected outcome}`.
+  `subject`. Name tests `when_{scenario}_then_it_{expected outcome}`.
 - Live checks use the `*.live.ts` suffix and run with `npm run test:live`; `npm test` skips them.
 
 ## Architecture constraints

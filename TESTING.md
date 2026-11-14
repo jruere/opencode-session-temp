@@ -223,10 +223,10 @@ replace it with a real model.
 ## Test conventions
 
 Every test is three paragraphs: setup, execution, assertions. Assign the value under test to `subject`. Name tests
-`test_when_{scenario}_then_it_{expected outcome}`.
+`when_{scenario}_then_it_{expected outcome}`.
 
 ```ts
-test("test_when_resource_is_a_sibling_with_a_shared_prefix_then_it_is_treated_as_foreign", () => {
+test("when_resource_is_a_sibling_with_a_shared_prefix_then_it_is_treated_as_foreign", () => {
   // Setup: two session directories whose names share a prefix.
   const layout = resolveLayout(root, session("ses_A"), home);
   const resource = path.join(root, layout.projectDir, "ses_AB", "notes.txt");
@@ -317,9 +317,9 @@ These are ambiguous in the README. Decide each explicitly, document it, and add 
 
 ## First tests to write
 
-1. `test_when_resource_is_a_sibling_with_a_shared_prefix_then_it_is_treated_as_foreign`
-2. `test_when_default_path_is_a_prefix_of_another_path_then_only_the_exact_path_is_rewritten`
-3. `test_when_context_hook_runs_twice_then_the_system_text_is_byte_identical`
-4. `test_when_project_ids_differ_then_slugs_differ`
-5. `test_when_atime_is_fresh_and_mtime_is_stale_then_the_file_is_kept`
-6. `test_when_two_sessions_share_a_filename_then_paths_differ_and_cross_write_is_denied`
+1. `when_resource_is_a_sibling_with_a_shared_prefix_then_it_is_treated_as_foreign`
+2. `when_default_path_is_a_prefix_of_another_path_then_only_the_exact_path_is_rewritten`
+3. `when_context_hook_runs_twice_then_the_system_text_is_byte_identical`
+4. `when_project_ids_differ_then_slugs_differ`
+5. `when_atime_is_fresh_and_mtime_is_stale_then_the_file_is_kept`
+6. `when_two_sessions_share_a_filename_then_paths_differ_and_cross_write_is_denied`
