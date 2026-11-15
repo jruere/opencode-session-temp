@@ -35,8 +35,8 @@ default glob skips them, keep them runnable with `npm run test:live`, and run th
 
 The test plan depends on these design choices. Make them before writing tests.
 
-- `layout.ts` is pure: `resolveLayout(root, session, home)` returns the slug and directory. It does not read
-  `os.tmpdir()` or `os.homedir()` at module scope.
+- `layout.ts` is pure: `resolveLayout(root, session)` returns the slug and directory. It does not read
+  `os.tmpdir()` or the environment at module scope.
 - `instructions.ts` separates the pure rewrite from the hook. The pure function receives the system parts, the
   default root, and the session directory, and returns whether it changed anything.
 - `enforce.ts` exports a pure decision function. The hook adapter only reads the event, calls the function, and writes
@@ -44,7 +44,7 @@ The test plan depends on these design choices. Make them before writing tests.
 - `sweep.ts` exports `sweepOnce(root, options, now)` and the age predicate. Timers live in `index.ts`.
 - `index.ts` owns per-instance state: the memoized session map, warn-once flags, the timer, and the abort controller.
   Do not put this state at module scope, or tests leak and multiple plugin instances share it.
-- Inject `root`, `home`, `now`, and `logger`. Inject `rename` only for failure tests. Do not abstract the filesystem
+- Inject `root`, `now`, and `logger`. Inject `rename` only for failure tests. Do not abstract the filesystem
   beyond that.
 - Keep hook adapters thin enough that the fake context can invoke them exactly as core does, with a mutable event.
 
@@ -61,13 +61,16 @@ matters: on macOS `/tmp` is a symlink to `/private/tmp`, and the plugin must com
 
 | Case | Assertion |
 | --- | --- |
-| Home-relative project | Slug is the readable relative path plus `-` plus the hash |
-| Project outside home | Slug uses the absolute path form |
-| Sibling sharing the home prefix | `/home/user2/app` is not treated as inside `/home/user` |
-| Project is home or `/` | `home-<hash>` and `root-<hash>` |
-| Unsafe characters | Replaced, never producing a path separator or `..` |
-| Lossy normalization | Two project IDs with the same readable name get different slugs |
-| Long path | Slug stays within the filesystem segment limit or is hashed down |
+| Typical project | Readable part is the last two segments, stripped, joined with `_`, plus the hash |
+| Shared last two segments | `/a/b/c` and `/x/b/c` produce `b_c` with different hashes |
+| Filesystem root | Slug is `root-<hash>` |
+| Home directory | Slug is `home_<user>-<hash>`; home has no special case |
+| Stripped characters | `.`, `_`, and whitespace are removed from each segment before assembly |
+| Unsafe characters | Replaced with `-`, runs collapsed, never producing a path separator or `..` |
+| Lossy normalization | Two paths that strip to the same readable part get different hashes |
+| Empty readable | `project-<hash>` |
+| Hash encoding | A known directory and project ID produce the documented 7-character lowercase base32 suffix |
+| Long segment | Readable part is the last 48 characters; the slug is at most 56 bytes |
 | Valid session ID | Used verbatim, including the `ses` prefix |
 | Invalid session ID | Sanitized plus hash; slash, `..`, and empty input are rejected |
 | Determinism | The same session and project produce the same path across calls |
@@ -228,7 +231,7 @@ Every test is three paragraphs: setup, execution, assertions. Assign the value u
 ```ts
 test("when_resource_is_a_sibling_with_a_shared_prefix_then_it_is_treated_as_foreign", () => {
   // Setup: two session directories whose names share a prefix.
-  const layout = resolveLayout(root, session("ses_A"), home);
+  const layout = resolveLayout(root, session("ses_A"));
   const resource = path.join(root, layout.projectDir, "ses_AB", "notes.txt");
 
   // Execution: classify a write from the shorter-named session.
@@ -271,7 +274,7 @@ Copy these habits:
 
 Do not copy these:
 
-- Mutating `process.env.TMPDIR` and `HOME`. Inject `root`, `home`, and `now`; environment mutation is fragile under
+- Mutating `process.env.TMPDIR` and `HOME`. Inject `root`, `now`, and `logger`; environment mutation is fragile under
   the `node:test` concurrency model.
 - Plain JavaScript without a type check. Use TypeScript and `tsc --noEmit`.
 - Reading `readdirSync(root)[0]` to find the directory. Compute the expected path from the pure function.
@@ -313,7 +316,9 @@ These are ambiguous in the README. Decide each explicitly, document it, and add 
    settle this, but write enforcement is the stated goal.
 3. `maxAgeHours` on `noatime` and `relatime` mounts: is mtime alone sufficient, or is a touch-on-use strategy needed?
 4. Invalid options: reject during `setup`, or fall back to defaults with a warning?
-5. Project slug length: cap and hash, or rely on `ENAMETOOLONG`? The hash suffix already exists, so a cap is cheap.
+
+Project slug length is pinned: the readable part keeps the last 48 characters, and the slug is at most 56 bytes.
+Covered by the `Long segment` and `Filesystem root` cases.
 
 ## First tests to write
 

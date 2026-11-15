@@ -40,21 +40,32 @@ The default root is `path.join(os.tmpdir(), "opencode")`, i.e. `/tmp/opencode` o
 
 ```
 <tmpdir>/opencode/                 0700, created on demand
-  <project-slug>/                  0700, e.g. Some-project-app-1a2b3c4d
+  <project-slug>/                  0700, e.g. example_web-app-mfrggzd
     <sessionID>/                   0700, the session's writable scratch dir
 ```
 
-`<project-slug>` is the session's location directory relative to `os.homedir()`, or relative to `/` when it is outside
-the home directory, with path separators and unsafe characters replaced by `-`, plus `-` and the first 8 hex
-characters of `sha256(projectID)`. The hash keeps distinct projects from sharing a slug when normalization is lossy.
+`<project-slug>` is built from the session's location directory after normalizing it to an absolute path with
+`path.resolve` (no `.` or `..` segments, no symlink resolution):
+
+1. If it is the filesystem root (`/`, or `C:\` on Windows), the readable part is `root`.
+2. Otherwise take the last two path segments, the parent directory name and the base name. In each, remove `.`, `_`,
+   and whitespace anywhere, replace any remaining character outside `[A-Za-z0-9-]` with `-`, collapse runs of `-`,
+   and trim `-`. Drop segments that become empty, join the rest with `_`, keep the last 48 characters, trim `-` and
+   `_` from both ends, and use `project` when the result is empty. The readable part is at most 48 ASCII bytes.
+3. Append `-` and the lowercase RFC 4648 base32 encoding (no padding, 7 characters) of the CRC32 of the UTF-8 bytes
+   of `projectID`, a NUL byte, and the normalized directory. The checksum covers the full normalized directory and
+   the project ID, not the readable part, so `/a/b/c` and `/x/b/c` get different slugs even though both are named
+   `b_c`.
+
+The hash keeps distinct projects from sharing a slug when the readable part collides, either because two paths end in
+the same two segments or because stripping removed meaningful characters. The resulting segment is at most 56 bytes.
 
 The plugin reads the session's own location and project with `ctx.session.get`, memoized per session, instead of
 `ctx.location`, which describes the plugin instance and not necessarily the session.
 
 There is no separate `global` bucket. In V2 every session has a `projectID` and a location, including sessions opened
-in a directory that is not a Git repository. A session opened directly in the home directory or at `/` gets the slug
-`home-<hash>` or `root-<hash>`. If a server ever reports a session without a usable location, the plugin falls back to
-`global/<sessionID>`.
+in a directory that is not a Git repository. If a server ever reports a session without a usable location, the plugin
+falls back to `global/<sessionID>`.
 
 `<sessionID>` is used verbatim, so it matches `OPENCODE_SESSION_ID` in shell subprocesses and scripts can reconstruct the
 path. The ID is validated as a single safe path segment (`^[A-Za-z0-9._-]+$` and a `ses` prefix); if one ever fails,
