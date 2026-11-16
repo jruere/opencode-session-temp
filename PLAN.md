@@ -187,7 +187,7 @@ Test selection and both fallback branches before the adapter. Implementation ord
 
 The fixture is minimal, not core's prose. The live check covers drift.
 
-### M4: sweep
+### M4: sweep (DONE)
 
 Use a fixed `now` and `fs.utimes`. Implement bottom-up pruning so a session directory is removed only after its stale
 children are gone. Keep the root itself. Skip symlinked project directories and non-`ses` names entirely. Treat
