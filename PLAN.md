@@ -164,7 +164,7 @@ Write the shared-prefix test first (`ses_A` versus `ses_AB`). Then:
 - Per-session `enrichmentDisabled` is checked by the wiring in M6: when set for a session, `edit` enforcement for that
   session is skipped.
 
-### M3: instructions
+### M3: instructions (DONE)
 
 Test selection and both fallback branches before the adapter. Implementation order:
 

@@ -54,6 +54,13 @@ export function sessionSegment(sessionID: string): string {
 	return `${prefixed}-${hash}`;
 }
 
+/** The project and session directories resolved for one session. */
+export interface SessionLayout {
+	readonly projectSlug: string;
+	readonly projectDir: string;
+	readonly sessionDir: string;
+}
+
 /** Resolves the per-session scratch layout under `root`. */
 export function resolveLayout(
 	root: string,
@@ -62,7 +69,7 @@ export function resolveLayout(
 		projectID?: string;
 		location?: { directory?: string };
 	},
-): { projectSlug: string; projectDir: string; sessionDir: string } {
+): SessionLayout {
 	const normalizedRoot = path.resolve(root);
 	const segment = sessionSegment(session.sessionID);
 	const directory = session.location?.directory;
