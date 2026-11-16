@@ -114,7 +114,7 @@ requires; `lifecycle.test.ts` is their suite.
 | M6 | `src/index.ts`: options, memo, wiring, cleanup | `plugin.test.ts`: registrations, defaults and overrides, `enforce: "off"`, `allowExternal: false`, disposal, memoization, move invalidation, concurrency, no shell hook | plugin suite green; full `npm test` green |
 | M7 | Live checks, coverage, docs | `test/live/*.live.ts`; coverage run; README decision sentences | `npm run test:live` passes against a local server; coverage >= 80% |
 
-### M0: harness
+### M0: harness (DONE)
 
 - `tmp-root.ts`: `mkdtemp` under `os.tmpdir()`, `realpath`, register `t.after` removal, expose `root` and helpers to
   build project and session trees. Realpath matters on macOS.
@@ -126,7 +126,7 @@ requires; `lifecycle.test.ts` is their suite.
   live check find upstream drift.
 - `src/layout.ts` exports exist as throwing stubs so `tsc --noEmit` passes before M1 replaces them.
 
-### M1: layout
+### M1: layout (DONE)
 
 Start with the shared-last-two-segments test (`/a/b/c` versus `/x/b/c`), then add the rest of the `TESTING.md`
 table. Implement in this order:
@@ -149,7 +149,7 @@ table. Implement in this order:
 Property tests use a small deterministic generator (no dependency): pairs of valid session IDs and project paths, then
 assert strict descendant and mutual non-containment.
 
-### M2: enforcement
+### M2: enforcement (DONE)
 
 Write the shared-prefix test first (`ses_A` versus `ses_AB`). Then:
 

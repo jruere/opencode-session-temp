@@ -30,9 +30,14 @@ export function projectSlug(directory: string, projectID: string): string {
 	return `${readableSlug(normalized)}-${slugHash(projectID, normalized)}`;
 }
 
+/** True when `segment` is a valid session directory name. */
+export function isSessionSegment(segment: string): boolean {
+	return sessionIDPattern.test(segment);
+}
+
 /** Validates a session ID as a single safe path segment. */
 export function sessionSegment(sessionID: string): string {
-	if (sessionIDPattern.test(sessionID)) return sessionID;
+	if (isSessionSegment(sessionID)) return sessionID;
 
 	const sanitized = sessionID
 		.replace(/[^A-Za-z0-9._-]+/g, "-")

@@ -164,6 +164,45 @@ test("when_the_last_segment_is_long_then_the_readable_part_keeps_the_last_48_cha
 	assert.equal(Buffer.byteLength(subject, "utf8"), 56);
 });
 
+test("when_directory_contains_dot_segments_then_the_slug_uses_the_resolved_path", async (t) => {
+	// Setup: one plain directory and a literal path that resolves to it through `..`.
+	const root = await makeTmpRoot(t);
+	const plain = path.join(root, "acme", "dashboard");
+	// Concatenate instead of using path.join: joining would resolve `..` before projectSlug can.
+	const dotted = `${root}${path.sep}acme${path.sep}ignored${path.sep}..${path.sep}dashboard`;
+
+	// Execution: derive the slug from the unresolved spelling.
+	const subject = projectSlug(dotted, "prj_dots");
+
+	// Assertions: resolution happens before both readability and hashing.
+	assert.equal(subject, projectSlug(plain, "prj_dots"));
+	assert.match(subject, /^acme_dashboard-[a-z2-7]{7}$/);
+});
+
+test("when_segments_have_punctuation_or_outer_hyphens_then_runs_collapse_and_edges_trim", async (t) => {
+	// Setup: one segment with repeated unsafe characters and one with hyphen runs at its edges.
+	const root = await makeTmpRoot(t);
+	const directory = path.join(root, "a!!b", "--c--");
+
+	// Execution: derive the slug.
+	const subject = projectSlug(directory, "prj_edge");
+
+	// Assertions: runs collapse and edges trim before the segments are joined.
+	assert.match(subject, /^a-b_c-[a-z2-7]{7}$/);
+});
+
+test("when_one_segment_strips_to_empty_then_the_other_remains", async (t) => {
+	// Setup: a project directory whose parent segment consists only of stripped characters.
+	const root = await makeTmpRoot(t);
+	const directory = path.join(root, "...", "app");
+
+	// Execution: derive the slug.
+	const subject = projectSlug(directory, "prj_partial");
+
+	// Assertions: the empty segment is dropped without leaving an extra underscore.
+	assert.match(subject, /^app-[a-z2-7]{7}$/);
+});
+
 test("when_session_id_is_valid_then_it_is_used_verbatim", () => {
 	// Setup: valid session IDs, including punctuation the rules allow.
 	const valid = ["ses_A", "ses.AB-CD_12", "ses_1750000000000_abc"];
@@ -179,8 +218,9 @@ test("when_session_id_is_invalid_then_the_fallback_is_a_single_safe_segment", ()
 	// Setup: IDs with separators, traversal, empty input, or no `ses` prefix.
 	const invalid = ["ses/bad", "..", "", ".", "ses", "SES_upper", "/"];
 
-	// Execution: validate each ID.
+	// Execution: validate each ID twice.
 	const subjects = invalid.map((sessionID) => sessionSegment(sessionID));
+	const repeated = invalid.map((sessionID) => sessionSegment(sessionID));
 
 	// Assertions: each result is one safe segment, ends with 8 hex characters, and no two collide.
 	for (const [index, subject] of subjects.entries()) {
@@ -190,6 +230,7 @@ test("when_session_id_is_invalid_then_the_fallback_is_a_single_safe_segment", ()
 		assert.notEqual(subject, invalid[index]);
 	}
 	assert.equal(new Set(subjects).size, subjects.length);
+	assert.deepEqual(repeated, subjects);
 });
 
 test("when_layout_is_resolved_then_the_session_directory_is_under_the_project_directory", async (t) => {
@@ -259,13 +300,15 @@ test("when_session_id_is_unsafe_then_the_session_directory_cannot_escape_its_pro
 test("when_paths_are_compared_then_containment_is_segment_aware_and_strict", () => {
 	// Setup: parent and child paths covering descendants, equality, prefix collisions, and traversal.
 	const parent = path.join(path.sep, "a", "b");
+	// The `..` cases are literal on purpose: path.join would normalize them before isInside sees the input.
 	const cases: Array<[string, boolean]> = [
 		[path.join(parent, "c"), true],
 		[path.join(parent, "c", "d"), true],
+		[`${parent}${path.sep}c${path.sep}..${path.sep}d`, true],
 		[parent, false],
 		[path.join(path.sep, "a", "bc"), false],
 		[path.join(path.sep, "a"), false],
-		[path.join(parent, "..", "c"), false],
+		[`${parent}${path.sep}..${path.sep}c`, false],
 	];
 
 	// Execution: test each pair.
