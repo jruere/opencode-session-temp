@@ -1,0 +1,45 @@
+{
+  // OpenCode v2 project config.
+  "$schema": "https://opencode.ai/config.json",
+
+  // Keep the model pointed at repo-local context if needed (optional).
+  // "instructions": ["AGENTS.md", "README.md"],
+
+  // Permissions: allow normal dev operations; block edits into generated/managed paths.
+  "permissions": [
+    // Allow normal shell commands (tests, git, npm, node, devenv, etc.).
+    { "action": "shell", "resource": "node --test *", "effect": "allow" },
+    { "action": "shell", "resource": "biome check *", "effect": "allow" },
+
+    // Installed dependencies: not source, overwritten by npm ci/install.
+    {
+      "action": "edit",
+      "resource": "node_modules/*",
+      "effect": "deny"
+    },
+    {
+      "action": "edit",
+      "resource": "node_modules/**",
+      "effect": "deny"
+    },
+
+    // devenv state/cache: managed by devenv, not project source.
+    {
+      "action": "edit",
+      "resource": ".devenv/*",
+      "effect": "deny"
+    },
+    {
+      "action": "edit",
+      "resource": ".devenv/**",
+      "effect": "deny"
+    },
+
+    // Generated symlink into the Nix store (see AGENTS.md); change devenv.nix instead.
+    {
+      "action": "edit",
+      "resource": ".pre-commit-config.yaml",
+      "effect": "deny"
+    }
+  ]
+}
