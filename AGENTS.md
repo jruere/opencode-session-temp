@@ -7,12 +7,6 @@
 - Read `devenv.nix`, `package.json`, and `tsconfig.json` for the toolchain and git-hook setup. This file records only
   what is easy to miss.
 
-## Current state
-
-- `package.json`, `package-lock.json`, `tsconfig.json`, and a stub `src/index.ts` exist.
-- `src/` has no behavior yet, and there are no tests or CI. npm scripts exist; do not assume a package entrypoint
-  beyond the stub.
-
 ## Environment
 
 - When `DEVENV_ROOT` is set, the devenv shell is active. Run tools directly, not through `devenv shell`.
