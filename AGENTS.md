@@ -27,7 +27,7 @@
   or not, including tests, linters, and formatters.
 - Do not run `npm test`, `npm run test:live`, `npm run typecheck`, `biome`, or individual hook commands as a substitute
   for `devenv test`. They are not equivalent: they skip the configured hooks and their order. Run one of them
-  only to debug a failure that `devenv test` already reported.
+  only to debug a failure that `devenv test` already reported or for non-tracked files.
 - `devenv test` prints `devenv:enterTest (no command)` even when `enterTest` runs. Treat that label as cosmetic;
   the command still executes.
 - Tests use `node:test`. Each test is three paragraphs: setup, execution, assertions. Assign the value being tested to
