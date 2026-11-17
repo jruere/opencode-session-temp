@@ -5,6 +5,24 @@
   // Keep the model pointed at repo-local context if needed (optional).
   // "instructions": ["AGENTS.md", "README.md"],
 
+  // MCP: expose the TypeScript language server via mcp-language-server.
+  "mcp": {
+    "servers": {
+      "typescript": {
+        "type": "local",
+        "command": [
+          ".devenv/profile/bin/mcp-language-server",
+          "--workspace",
+          ".",
+          "--lsp",
+          ".devenv/profile/bin/typescript-language-server",
+          "--",
+          "--stdio"
+        ]
+      }
+    }
+  },
+
   // Permissions: allow normal dev operations; block edits into generated/managed paths.
   "permissions": [
     // Allow normal shell commands (tests, git, npm, node, devenv, etc.).

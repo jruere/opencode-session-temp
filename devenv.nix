@@ -19,8 +19,10 @@
   languages.typescript.enable = true;
 
   # https://devenv.sh/packages/
-  # Formatter and linter for TypeScript, JavaScript, and JSON.
-  packages = [ pkgs.biome ];
+  packages = [
+    pkgs.biome # Formatter and linter for TypeScript, JavaScript, and JSON.
+    pkgs.mcp-language-server # LSP-to-MCP adapter for agent.
+  ];
 
   # https://devenv.sh/tasks/
   # Keep these tasks in sync with the package.json scripts: same commands, globs, and
