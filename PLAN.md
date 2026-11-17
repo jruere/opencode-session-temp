@@ -45,79 +45,70 @@ Three smaller decisions to pin while implementing:
 - A warning is logged once per plugin instance per warning kind (missing source, replacement miss, mkdir failure,
   rename failure), never once per module or process.
 
-## Target module APIs
+## API contracts
 
-Signatures are deliberately narrow so the suites can call the pure part without a fake context.
+Signatures are deliberately narrow so the suites can call the pure part without a fake context. The module that owns
+each export is listed in `README.md`.
 
 ```ts
-// src/layout.ts
-export function isInside(parent: string, child: string): boolean;
-export function projectSlug(directory: string, projectID: string): string;
-export function sessionSegment(sessionID: string): string;
-export function resolveLayout(
+// layout
+isInside(parent: string, child: string): boolean;
+projectSlug(directory: string, projectID: string): string;
+sessionSegment(sessionID: string): string;
+resolveLayout(
   root: string,
   session: { sessionID: string; projectID?: string; location?: { directory?: string } },
 ): { projectSlug: string; projectDir: string; sessionDir: string };
-```
 
-```ts
-// src/enforce.ts
-export function evaluateEdit(input: {
+// permission
+evaluateEdit(input: {
   root: string;
   ownDir: string;
   resources: readonly string[];
   mode: "deny" | "ask";
 }): { effect: "deny" | "ask"; message: string } | undefined;
-export function evaluateExternal(input: {
+evaluateExternal(input: {
   root: string;
   resources: readonly string[];
   allowExternal: boolean;
 }): { effect: "allow" } | undefined;
-```
 
-```ts
-// src/instructions.ts
-export function rewriteInstructions(
+// instructions
+rewriteInstructions(
   parts: Array<{ type: string; text: string; metadata?: Record<string, unknown> }>,
   defaultRoot: string,
   sessionDir: string,
 ): boolean;
-```
 
-```ts
-// src/logging.ts
-export type Logger = {
+// logging
+type Logger = {
   warn: (message: string, ...args: unknown[]) => void;
   error: (message: string, ...args: unknown[]) => void;
 };
-export type WarnKind = "missing-source" | "replacement-miss" | "mkdir" | "rename";
-export interface WarnState { readonly warned: Set<string>; }
-export function warnOnce(state: WarnState, kind: WarnKind, logger: Logger, message: string, ...args: unknown[]): void;
+type WarnKind = "missing-source" | "replacement-miss" | "mkdir" | "rename";
+interface WarnState { readonly warned: Set<string>; }
+warnOnce(state: WarnState, kind: WarnKind, logger: Logger, message: string, ...args: unknown[]): void;
 
-// src/fs-errors.ts
-export function isMissing(error: unknown): boolean;
-export function isNotEmpty(error: unknown): boolean;
-export function isDestinationExists(error: unknown): boolean;
+// filesystem errors
+isMissing(error: unknown): boolean;
+isNotEmpty(error: unknown): boolean;
+isDestinationExists(error: unknown): boolean;
+
+// sweep
+isStale(stats: { atimeMs: number; mtimeMs: number }, cutoffMs: number): boolean;
+sweepOnce(root: string, options: { maxAgeHours: number; now: number; logger: Logger }): Promise<void>;
+startSweepTimer(sweep: () => Promise<void>, intervalMs: number, logger: Logger): { stop: () => void };
+
+// lifecycle
+type LifecycleEvent = /* deleted | archived | moved, with the fields the handlers read */;
+subscribeLifecycle(events: AsyncIterable<LifecycleEvent>, deps: LifecycleDeps): Promise<void>;
 ```
 
-```ts
-// src/sweep.ts
-export function isStale(stats: { atimeMs: number; mtimeMs: number }, cutoffMs: number): boolean;
-export function sweepOnce(root: string, options: { maxAgeHours: number; now: number; logger: Logger }): Promise<void>;
-export function startSweepTimer(sweep: () => Promise<void>, intervalMs: number, logger: Logger): { stop: () => void };
-```
-
-```ts
-// src/lifecycle.ts
-export type LifecycleEvent = /* deleted | archived | moved, with the fields the handlers read */;
-export function subscribeLifecycle(events: AsyncIterable<LifecycleEvent>, deps: LifecycleDeps): Promise<void>;
-```
-
-`logging.ts` and `fs-errors.ts` are leaf modules shared by `sweep.ts`, `lifecycle.ts`, and `instructions.ts`.
-`index.ts` owns option parsing, the per-instance memo, warn flags, per-session `enrichmentDisabled` state,
-registrations, the abort controller, and the timer. Lifecycle handlers live in `lifecycle.ts`; `lifecycle.test.ts`
-is their suite. `LifecycleEvent` is narrowed to the fields the handlers read, so the M6 `ctx.event.subscribe`
-result must stay assignable to it and an upstream field rename fails the type check.
+Logging and filesystem-error helpers are leaves shared by the sweep, lifecycle, and instruction adapters. The entry
+module owns option parsing, the per-instance memo, warn flags, per-session `enrichmentDisabled` state, registrations,
+the abort controller, and the timer. Lifecycle handlers live behind `subscribeLifecycle`; `lifecycle.test.ts` is their
+suite. `LifecycleEvent` is narrowed to the fields the handlers read, so the M6 `ctx.event.subscribe` result must stay
+assignable to it and an upstream field rename fails the type check.
 
 ## Milestones
 
@@ -129,8 +120,8 @@ result must stay assignable to it and an upstream field rename fails the type ch
 | M3 | `src/instructions.ts`: pure rewrite plus adapter | `instructions.test.ts`: selection, exact replacement, prefix collision, idempotence, stability, both fallbacks, mkdir failure, metadata immutability | instructions suite green; adapter consumes an injected layout resolver |
 | M4 | `src/sweep.ts`: age predicate, real-tree sweep, timer | `sweep.test.ts`: stale/fresh/boundary, symlink project, non-`ses` dir, loose file, symlink target, FIFO, pruning, missing root, race, partial failure | sweep suite green |
 | M5 | `src/lifecycle.ts`: lifecycle handlers and subscription loop | `lifecycle.test.ts`: deleted, duplicate, disabled, archived, moved, move destination exists, move race, move failure, cleanup | lifecycle suite green |
-| M6 | `src/index.ts`: options, memo, wiring, cleanup | `plugin.test.ts`: registrations, defaults and overrides, `enforce: "off"`, `allowExternal: false`, disposal, memoization, move invalidation, concurrency, no shell hook | plugin suite green; full `npm test` green |
-| M7 | Live checks, coverage, docs | `test/live/*.live.ts`; coverage run; README decision sentences | `npm run test:live` passes against a local server; coverage >= 80% |
+| M6 | `src/index.ts`: options, memo, wiring, cleanup | `plugin.test.ts`: registrations, defaults and overrides, `enforce: "off"`, `allowExternal: false`, disposal, memoization, move invalidation, concurrency, no shell hook | plugin suite green; full `devenv test` green |
+| M7 | Live checks, coverage, docs | `test/live/*.live.ts`; coverage run; README decision sentences | `devenv tasks run test:live` passes against a local server; coverage >= 80% |
 
 ### M0: harness (DONE)
 
@@ -261,25 +252,12 @@ Implement option parsing and validation first, then the resolver, then registrat
 - Stretch: `test/live/write.live.ts` with a local OpenAI-compatible stub, per `TESTING.md` check 2. If it becomes
   expensive to maintain, keep the probe check and move the write check to the manual checklist.
 - Run coverage once all suites exist, then trim only defensive logging and timer wiring from the untested remainder.
-  There is no coverage exclusion config: `package.json` enforces 80% lines, functions, and branches globally across
-  `src/**`, so the untested remainder must fit inside that 20% budget or get tests.
+  There is no coverage exclusion config: the `test:coverage` tasks in `devenv.nix` and `package.json` enforce 80% lines,
+  functions, and branches globally across `src/**`, so the untested remainder must fit inside that 20% budget or get
+  tests.
 - README/TESTING updates: add the remaining pinned decisions where the behavior is described, fix the warning scope
   sentence (README line 75: "once per process" -> "once per plugin instance"), and remove the decisions from the
   `TESTING.md` open list.
-
-## First six tests
-
-In milestone order:
-
-1. `when_resource_is_a_sibling_with_a_shared_prefix_then_it_is_treated_as_foreign`
-2. `when_default_path_is_a_prefix_of_another_path_then_it_rewrites_only_the_exact_path`
-3. `when_context_hook_runs_twice_then_it_is_byte_identical`
-4. `when_project_ids_differ_then_it_gives_different_slugs`
-5. `when_atime_is_fresh_and_mtime_is_stale_then_it_keeps_the_file`
-6. `when_two_sessions_share_a_filename_then_it_denies_the_cross_write`
-
-Tests 1-5 live in their milestone suites (M2, M3, M1, M4). Test 6 belongs to `plugin.test.ts` (M6) and is the first
-integration-shaped test. It uses two session IDs, one fake context, and the real permission adapter, not a live server.
 
 ## Risks and mitigations
 
@@ -291,4 +269,4 @@ integration-shaped test. It uses two session IDs, one fake context, and the real
 | Coverage collapses early because half the modules are absent | Run thresholds at M7; do not weaken them |
 | macOS or symlinked roots break containment | `tmp-root` realpaths its root; `parseOptions` realpaths the resolved root once; every expected path derives from them |
 | Multiple plugin instances share memo or warn flags | All state is created inside `setup`, never at module scope |
-| Live checks become a maintenance tax | Keep check 1; keep check 2 behind `npm run test:live` and allow the manual fallback |
+| Live checks become a maintenance tax | Keep check 1; keep check 2 behind `devenv tasks run test:live` and allow the manual fallback |

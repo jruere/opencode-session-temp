@@ -221,6 +221,9 @@ Config changes reload plugins without a restart.
 `@opencode/plugin` is pinned to the targeted server version in `package.json` (`2.2.6`); upgrade it deliberately
 with the live checks in `TESTING.md`, not by floating the dependency.
 
+Verification commands are mirrored in `devenv.nix` tasks and `package.json` scripts; keep the two lists in sync.
+`devenv test` is the full pass, including the git hooks.
+
 Module layout:
 
 ```

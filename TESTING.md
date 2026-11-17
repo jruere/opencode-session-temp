@@ -29,7 +29,8 @@ test/
 ```
 
 `test/live/` is excluded from the default run because it needs a real server. Name live files `*.live.ts` so the
-default glob skips them, keep them runnable with `npm run test:live`, and run them before a release.
+default glob skips them, keep them runnable with `devenv tasks run test:live` (or `npm run test:live`), and run them
+before a release. The npm scripts mirror the devenv tasks; `devenv test` remains the full verification pass.
 
 ## Testability rules for `src/`
 
@@ -198,8 +199,8 @@ That last test is a regression guard for the design decision in the README.
 
 ## Layer 3: live checks
 
-These are opt-in and not matched by the default test glob. Run them with `npm run test:live` before a release and after
-an OpenCode upgrade.
+These are opt-in and not matched by the default test glob. Run them with `devenv tasks run test:live` (or
+`npm run test:live`) before a release and after an OpenCode upgrade.
 
 1. **Instruction visibility.** Load a second probe plugin after this one. Its `context` hook sees the system parts
    after the first plugin rewrote them. Persist the parts and assert the session directory is present. Also assert the
@@ -294,8 +295,8 @@ concurrent sessions are testable state here and have no analogue there.
 
 ## Coverage
 
-Target 80% for lines, functions, and branches in `src/`. Run `npm run test:coverage`; the thresholds are defined in
-`package.json`.
+Target 80% for lines, functions, and branches in `src/`. Run `devenv tasks run test:coverage` (or
+`npm run test:coverage`); the thresholds are defined in both `devenv.nix` and `package.json`.
 
 Do not chase 100%. The untested remainder should be defensive logging and timer wiring, and that should be visible in
 the suite headers.
