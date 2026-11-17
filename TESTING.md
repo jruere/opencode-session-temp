@@ -42,6 +42,10 @@ The test plan depends on these design choices. Make them before writing tests.
 - `enforce.ts` exports a pure decision function. The hook adapter only reads the event, calls the function, and writes
   back `effect` and `message`.
 - `sweep.ts` exports `sweepOnce(root, options, now)` and the age predicate. Timers live in `index.ts`.
+- `lifecycle.ts` exports `subscribeLifecycle(events, deps)` and keeps the handlers behind it, so tests drive a
+  homemade async iterable without a transport.
+- `logging.ts` owns the injected `Logger` and warn-once state. `fs-errors.ts` owns the race predicates shared by
+  the sweep and lifecycle walkers.
 - `index.ts` owns per-instance state: the memoized session map, warn-once flags, the timer, and the abort controller.
   Do not put this state at module scope, or tests leak and multiple plugin instances share it.
 - Inject `root`, `now`, and `logger`. Inject `rename` only for failure tests. Do not abstract the filesystem

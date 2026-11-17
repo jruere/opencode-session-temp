@@ -228,7 +228,10 @@ src/index.ts          Plugin.define, wiring, cleanup registration
 src/layout.ts         root, project slug, session directory
 src/instructions.ts   context hook rewrite
 src/enforce.ts        permission hook
-src/sweep.ts          age-based cleanup and lifecycle handlers
+src/sweep.ts          age-based cleanup
+src/lifecycle.ts      session lifecycle handlers and event loop
+src/logging.ts        logger contract and warning deduplication
+src/fs-errors.ts      filesystem error predicates
 ```
 
 See `TESTING.md` for the test plan.

@@ -23,7 +23,7 @@ import {
 	rewriteInstructions,
 } from "../src/instructions.ts";
 import type { SessionLayout } from "../src/layout.ts";
-import type { Logger } from "../src/sweep.ts";
+import type { Logger } from "../src/logging.ts";
 import {
 	defaultRoot,
 	environmentText,

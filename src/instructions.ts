@@ -8,7 +8,7 @@
  */
 import { mkdir as fsMkdir } from "node:fs/promises";
 import type { SessionLayout } from "./layout.ts";
-import { type Logger, warnOnce } from "./sweep.ts";
+import { type Logger, warnOnce } from "./logging.ts";
 
 /** A system part as seen by the context hook. Only `text` is ever changed. */
 export interface InstructionPart {

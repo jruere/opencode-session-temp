@@ -4,46 +4,17 @@
  * `isStale`, `entryKind`, `childRole`, and `decideEntry` hold the pure policy: plain data in, plain
  * decisions out, no filesystem access. `sweepOnce` is the filesystem walker: it maps `lstat` into
  * plain data, asks the policy what to traverse or unlink, prunes empty directories bottom-up, and
- * isolates per-entry errors. `startSweepTimer` owns the hourly interval. Lifecycle handlers and the
- * subscription loop are M5.
+ * isolates per-entry errors. `startSweepTimer` owns the hourly interval. Session lifecycle handling
+ * lives in `lifecycle.ts`.
  *
  * Errors are best effort: a missing entry is success, and one failing entry, session, or project is logged
  * without stopping the rest of the sweep.
  */
 import { promises as fsp } from "node:fs";
 import path from "node:path";
+import { isMissing, isNotEmpty } from "./fs-errors.ts";
 import { isSessionSegment } from "./layout.ts";
-
-/** Logging surface injected by `index.ts`; defaults to `console` there. */
-export type Logger = {
-	warn: (message: string, ...args: unknown[]) => void;
-	error: (message: string, ...args: unknown[]) => void;
-};
-
-/** Warning kinds deduplicated once per plugin instance. */
-export type WarnKind =
-	| "missing-source"
-	| "replacement-miss"
-	| "mkdir"
-	| "rename";
-
-/** The per-instance state a warning helper needs. */
-export interface WarnState {
-	readonly warned: Set<string>;
-}
-
-/** Logs a warning at most once per plugin instance for a given kind. */
-export function warnOnce(
-	state: WarnState,
-	kind: WarnKind,
-	logger: Logger,
-	message: string,
-	...args: unknown[]
-): void {
-	if (state.warned.has(kind)) return;
-	state.warned.add(kind);
-	logger.warn(message, ...args);
-}
+import type { Logger } from "./logging.ts";
 
 export interface SweepOptions {
 	readonly maxAgeHours: number;
@@ -308,20 +279,4 @@ async function removeEmptyDirectory(dir: string): Promise<void> {
 	} catch (error) {
 		if (!isMissing(error) && !isNotEmpty(error)) throw error;
 	}
-}
-
-function isMissing(error: unknown): boolean {
-	const code = errorCode(error);
-	return code === "ENOENT" || code === "ENOTDIR";
-}
-
-function isNotEmpty(error: unknown): boolean {
-	const code = errorCode(error);
-	return code === "ENOTEMPTY" || code === "EEXIST";
-}
-
-function errorCode(error: unknown): string | undefined {
-	if (typeof error !== "object" || error === null) return undefined;
-	const code = (error as { code?: unknown }).code;
-	return typeof code === "string" ? code : undefined;
 }

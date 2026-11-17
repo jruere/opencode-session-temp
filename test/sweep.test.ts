@@ -20,6 +20,7 @@ import {
 import path from "node:path";
 import { type TestContext, test } from "node:test";
 import { format, promisify } from "node:util";
+import type { Logger } from "../src/logging.ts";
 import {
 	childRole,
 	decideEntry,
@@ -28,7 +29,6 @@ import {
 	type EntryRole,
 	entryKind,
 	isStale,
-	type Logger,
 	startSweepTimer,
 	sweepOnce,
 } from "../src/sweep.ts";

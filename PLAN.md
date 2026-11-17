@@ -85,21 +85,39 @@ export function rewriteInstructions(
 ```
 
 ```ts
-// src/sweep.ts
+// src/logging.ts
 export type Logger = {
   warn: (message: string, ...args: unknown[]) => void;
   error: (message: string, ...args: unknown[]) => void;
 };
+export type WarnKind = "missing-source" | "replacement-miss" | "mkdir" | "rename";
+export interface WarnState { readonly warned: Set<string>; }
+export function warnOnce(state: WarnState, kind: WarnKind, logger: Logger, message: string, ...args: unknown[]): void;
 
+// src/fs-errors.ts
+export function isMissing(error: unknown): boolean;
+export function isNotEmpty(error: unknown): boolean;
+export function isDestinationExists(error: unknown): boolean;
+```
+
+```ts
+// src/sweep.ts
 export function isStale(stats: { atimeMs: number; mtimeMs: number }, cutoffMs: number): boolean;
 export function sweepOnce(root: string, options: { maxAgeHours: number; now: number; logger: Logger }): Promise<void>;
-export function subscribeLifecycle(events: AsyncIterable<OpenCodeEvent>, deps: LifecycleDeps): Promise<void>;
 export function startSweepTimer(sweep: () => Promise<void>, intervalMs: number, logger: Logger): { stop: () => void };
 ```
 
+```ts
+// src/lifecycle.ts
+export type LifecycleEvent = /* deleted | archived | moved, with the fields the handlers read */;
+export function subscribeLifecycle(events: AsyncIterable<LifecycleEvent>, deps: LifecycleDeps): Promise<void>;
+```
+
+`logging.ts` and `fs-errors.ts` are leaf modules shared by `sweep.ts`, `lifecycle.ts`, and `instructions.ts`.
 `index.ts` owns option parsing, the per-instance memo, warn flags, per-session `enrichmentDisabled` state,
-registrations, the abort controller, and the timer. Lifecycle handlers live in `sweep.ts`, as the README module layout
-requires; `lifecycle.test.ts` is their suite.
+registrations, the abort controller, and the timer. Lifecycle handlers live in `lifecycle.ts`; `lifecycle.test.ts`
+is their suite. `LifecycleEvent` is narrowed to the fields the handlers read, so the M6 `ctx.event.subscribe`
+result must stay assignable to it and an upstream field rename fails the type check.
 
 ## Milestones
 
@@ -110,7 +128,7 @@ requires; `lifecycle.test.ts` is their suite.
 | M2 | `src/enforce.ts`: pure decision plus thin adapter | `enforce.test.ts`: action/resource/mode/`allowExternal` table, multiple resources, traversal, message | enforce suite green |
 | M3 | `src/instructions.ts`: pure rewrite plus adapter | `instructions.test.ts`: selection, exact replacement, prefix collision, idempotence, stability, both fallbacks, mkdir failure, metadata immutability | instructions suite green; adapter consumes an injected layout resolver |
 | M4 | `src/sweep.ts`: age predicate, real-tree sweep, timer | `sweep.test.ts`: stale/fresh/boundary, symlink project, non-`ses` dir, loose file, symlink target, FIFO, pruning, missing root, race, partial failure | sweep suite green |
-| M5 | `src/sweep.ts`: lifecycle handlers and subscription loop | `lifecycle.test.ts`: deleted, duplicate, disabled, archived, moved, move destination exists, move race, move failure, cleanup | lifecycle suite green |
+| M5 | `src/lifecycle.ts`: lifecycle handlers and subscription loop | `lifecycle.test.ts`: deleted, duplicate, disabled, archived, moved, move destination exists, move race, move failure, cleanup | lifecycle suite green |
 | M6 | `src/index.ts`: options, memo, wiring, cleanup | `plugin.test.ts`: registrations, defaults and overrides, `enforce: "off"`, `allowExternal: false`, disposal, memoization, move invalidation, concurrency, no shell hook | plugin suite green; full `npm test` green |
 | M7 | Live checks, coverage, docs | `test/live/*.live.ts`; coverage run; README decision sentences | `npm run test:live` passes against a local server; coverage >= 80% |
 
@@ -198,10 +216,10 @@ For races, spy on `fs.promises.lstat` or `fs.promises.rename` and delete the tar
 `sweepOnce` directly with the `PLAN.md` signature (note `TESTING.md` line 44 shows an older `sweepOnce(root, options, now)`
 shape; keep the tests aligned with this plan); test `startSweepTimer` only for interval registration, `unref`, and `stop`.
 
-### M5: lifecycle
+### M5: lifecycle (DONE)
 
-Put the handlers behind `subscribeLifecycle(events, deps)` so tests can drive a homemade async iterable without a
-transport. `index.ts` only supplies `ctx.event.subscribe({ types, signal })`.
+Implement the handlers in `src/lifecycle.ts` and put them behind `subscribeLifecycle(events, deps)` so tests can
+drive a homemade async iterable without a transport. `index.ts` only supplies `ctx.event.subscribe({ types, signal })`.
 
 - `deleted`: scan every project directory (skipping symlinked project directories) for `<sessionSegment(sessionID)>`,
   remove matches recursively, ignore `ENOENT`, and clear per-session memo, mkdir cache, and `enrichmentDisabled` state.

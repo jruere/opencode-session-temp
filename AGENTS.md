@@ -34,4 +34,5 @@
 - Scratch directories are per session at `<root>/<project-slug>/<sessionID>`. Do not introduce a shared directory or a process-wide `TMPDIR`.
 - Enforce writes in `ctx.permission.hook("evaluate")` for `edit`/`write`/`patch`; keep reads open. Shell is deliberately not intercepted.
 - Module layout: `src/index.ts` wiring, `src/layout.ts` paths, `src/instructions.ts` context rewrite,
-  `src/enforce.ts` permissions, `src/sweep.ts` cleanup and lifecycle.
+  `src/enforce.ts` permissions, `src/sweep.ts` cleanup, `src/lifecycle.ts` session lifecycle,
+  `src/logging.ts` logger and warn-once state, `src/fs-errors.ts` filesystem error predicates.
