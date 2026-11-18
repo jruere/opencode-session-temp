@@ -26,9 +26,12 @@
   // Permissions: allow normal dev operations; block edits into generated/managed paths.
   "permissions": [
     // Allow normal shell commands (tests, git, npm, node, devenv, etc.).
+    { "action": "shell", "resource": "biome --version", "effect": "allow" },
     { "action": "shell", "resource": "biome check *", "effect": "allow" },
+    { "action": "shell", "resource": "node --version", "effect": "allow" },
     { "action": "shell", "resource": "node --test *", "effect": "allow" },
     { "action": "shell", "resource": "tsc --noEmit", "effect": "allow" },
+    { "action": "shell", "resource": "tsc --version", "effect": "allow" },
 
     // Installed dependencies: not source, overwritten by npm ci/install.
     {
