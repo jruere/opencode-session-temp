@@ -249,7 +249,7 @@ test("when_the_source_key_is_present_then_stale_metadata_text_still_selects_the_
 		text: environmentText,
 		metadata: {
 			experimental: {
-				instructions: { key: "core/environment", text: "stale prose" },
+				instructions: [{ key: "core/environment", text: "stale prose" }],
 			},
 		},
 	};
@@ -264,6 +264,34 @@ test("when_the_source_key_is_present_then_stale_metadata_text_still_selects_the_
 	assert.equal(parts.length, 1);
 });
 
+test("when_multiple_instruction_entries_are_listed_then_the_environment_entry_selects_the_part", () => {
+	// Setup: core lists several sources on the same part and concatenates them into its text.
+	const source: InstructionPart = {
+		type: "text",
+		text: `# Code Mode\n\nToday's date: 2026-01-01\n\n${environmentText}`,
+		metadata: {
+			experimental: {
+				instructions: [
+					{ key: "core/codemode", text: "# Code Mode" },
+					{ key: "core/date", text: "Today's date: 2026-01-01" },
+					{ key: "core/environment", text: environmentText },
+				],
+			},
+		},
+	};
+	const parts: InstructionPart[] = [source];
+
+	// Execution: run the pure rewrite.
+	const subject = rewriteInstructions(parts, defaultRoot, sessionDir);
+
+	// Assertions: the entry list selects the part and the preceding sources stay intact.
+	assert.equal(subject, true);
+	assert.equal(source.text.includes(sessionDir), true);
+	assert.equal(source.text.includes(defaultRoot), false);
+	assert.equal(source.text.startsWith("# Code Mode\n\nToday's date"), true);
+	assert.equal(parts.length, 1);
+});
+
 test("when_the_source_key_names_another_source_then_the_part_is_not_selected", () => {
 	// Setup: an instructions entry for a different source whose text happens to match the part.
 	const source: InstructionPart = {
@@ -271,7 +299,7 @@ test("when_the_source_key_names_another_source_then_the_part_is_not_selected", (
 		text: environmentText,
 		metadata: {
 			experimental: {
-				instructions: { key: "core/other", text: environmentText },
+				instructions: [{ key: "core/other", text: environmentText }],
 			},
 		},
 	};
@@ -292,7 +320,9 @@ test("when_instructions_metadata_has_no_key_and_text_mismatches_then_the_part_is
 		type: "text",
 		text: environmentText,
 		metadata: {
-			experimental: { instructions: { text: "a different source" } },
+			experimental: {
+				instructions: [{ text: "a different source" }],
+			},
 		},
 	};
 	const parts: InstructionPart[] = [source];
@@ -317,12 +347,17 @@ test("when_instructions_metadata_is_malformed_then_it_is_ignored_without_throwin
 		{
 			type: "text",
 			text: environmentText,
-			metadata: { experimental: { instructions: { key: 42 } } },
+			metadata: { experimental: { instructions: [{ key: 42 }] } },
 		},
 		{
 			type: "text",
 			text: environmentText,
 			metadata: { experimental: { instructions: null } },
+		},
+		{
+			type: "text",
+			text: environmentText,
+			metadata: { experimental: { instructions: { key: "core/environment" } } },
 		},
 		{ type: "text", text: environmentText },
 	];
@@ -332,7 +367,7 @@ test("when_instructions_metadata_is_malformed_then_it_is_ignored_without_throwin
 
 	// Assertions: nothing is selected and one fallback is appended.
 	assert.equal(subject, true);
-	assert.equal(parts.length, 5);
+	assert.equal(parts.length, 6);
 });
 
 test("when_the_default_root_is_empty_then_the_rewrite_is_a_no_op", () => {

@@ -245,7 +245,7 @@ Implement option parsing and validation first, then the resolver, then registrat
   termination, and stops the timer.
 - Do not touch `shell.create.before` or any environment variable. `plugin.test.ts` asserts the absence of a shell hook.
 
-### M7: live and polish
+### M7: live and polish (DONE)
 
 - `test/live/instructions.live.ts`: load a probe plugin after this one, inspect the rewritten parts, persist them, and
   assert the directory is present, byte-identical on the next call, and changed after a move. No model needed.

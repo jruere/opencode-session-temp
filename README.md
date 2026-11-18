@@ -78,12 +78,14 @@ the plugin uses a sanitized form plus `-` and the first 8 hex characters of `sha
 1. Resolve the session's scratch directory from its own `location.directory` and `projectID`, obtained with
    `ctx.session.get({ sessionID })` and memoized per session.
 2. Create the directory with `mkdir` recursive and mode `0700`. Cache the result per session in memory.
-3. Locate the system part whose `metadata.experimental.instructions` contains the `core/environment` source.
+3. Locate the system part whose `metadata.experimental.instructions` array contains an entry with `key`
+   `core/environment`; a keyless entry matches when its `text` equals the part text. Core concatenates several
+   instruction sources into one part, so the entry list decides the source, not the part text.
 4. Rewrite that part's text: take the source text, replace the default scratch path (`<tmpdir>/opencode`) with the
    session directory, and substitute the result back into the part. The model then sees one instruction that points
    at its own directory, and core's generic hint does not contradict it.
 5. If the source or the replacement is not found, append a new text part with the session directory and log a warning
-   once per process. The appended text is identical on every call, so the cache stays valid.
+   once per plugin instance per warning kind. The appended text is identical on every call, so the cache stays valid.
 
 The rewrite is idempotent: if the part already contains the session directory, return without changing anything.
 
@@ -100,6 +102,13 @@ session rather than denying writes into a directory that does not exist.
 - `read` and every other action: untouched. Cross-session reads are allowed by design.
 - `external_directory`: when the resource is inside the scratch root, set `effect = "allow"`, so the per-session
   directory does not trigger prompts under an `external_directory: "*" ask` policy.
+
+A loose file directly under the root, or directly under a project directory, is left alone. It is inside the root
+but not inside any session directory, and other tools share the root.
+
+Containment is lexical: resources are normalized with `path.resolve`, and `isInside` is segment-aware via
+`path.relative`, but targets are never `realpath`ed. A symlink inside the session's own directory that points at
+another session's file is therefore treated as the caller's own path. Security isolation is a non-goal.
 
 The `enforce` option selects the effect for writes outside the session directory:
 
@@ -134,6 +143,11 @@ On setup and then every 60 minutes:
 - Delete regular files and symlinks whose access time and modification time are both older than `maxAgeHours`.
 - Never follow symlink targets, never touch loose files directly under the root, and never remove the root itself.
 - Remove session directories once they are empty, then project directories once they are empty.
+
+The cutoff is strict: an entry is stale when `max(atime, mtime) < now - maxAgeHours`. An entry exactly at the cutoff
+is kept, and a fresh `atime` with a stale `mtime` (or the reverse) is kept. On `noatime` or `relatime` mounts `atime`
+does not track reads closely, so files can outlive the threshold; the sweep does not touch files on use, which keeps
+it read-only.
 
 The timer is `unref`'d and cleared by the cleanup function returned from `setup`. If a sweep fails, log the error and
 continue; cleanup is best effort.
@@ -177,6 +191,9 @@ Plugin options are read from `ctx.options`:
 | `cleanupOnDelete`  | `true`                               | Remove dir when session deleted.   |
 | `cleanupOnArchive` | `false`                              | Remove dir when session archived.  |
 
+Invalid values reject `setup` with an error that names the option and the bad value. There is no silent fallback:
+ignoring `enforce` or `root` would defeat the plugin's only enforcement.
+
 ## Install
 
 ```jsonc
@@ -192,7 +209,9 @@ Plugin options are read from `ctx.options`:
 ```
 
 The V2 server part imports `Plugin` from `@opencode/plugin`, not the V1 `@opencode-ai/plugin` package. The package
-entry may be any absolute directory; the conventional location for local plugins is `~/.config/opencode/plugins/`.
+entry may be any absolute directory. A directory with a `package.json` must expose the server part, normally
+`"exports": { ".": "./src/index.ts" }`; without `exports` OpenCode looks for a `server` or `index` file at the
+directory root. The conventional location for local plugins is `~/.config/opencode/plugins/`.
 
 The plugin auto-allows `external_directory` checks inside the root. The equivalent explicit rule is optional and
 documents intent:

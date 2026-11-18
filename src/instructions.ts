@@ -175,37 +175,45 @@ function rewriteParts(
 	return { changed: true, warning: "missing-source" };
 }
 
-/** Narrows `metadata.experimental.instructions` to the `{ key?, text }` entry core attaches. */
-function instructionsEntry(
+/** Narrows `metadata.experimental.instructions` to the `{ key?, text }` entries core attaches. */
+function instructionsEntries(
 	metadata: Record<string, unknown> | undefined,
-): InstructionEntry | undefined {
+): InstructionEntry[] | undefined {
 	if (metadata === undefined) return undefined;
 	const experimental = metadata.experimental;
 	if (typeof experimental !== "object" || experimental === null)
 		return undefined;
 	const instructions = (experimental as Record<string, unknown>).instructions;
-	if (typeof instructions !== "object" || instructions === null)
-		return undefined;
-	const record = instructions as Record<string, unknown>;
-	if (typeof record.text !== "string") return undefined;
-	if (record.key !== undefined && typeof record.key !== "string")
-		return undefined;
-	return {
-		key: typeof record.key === "string" ? record.key : undefined,
-		text: record.text,
-	};
+	if (!Array.isArray(instructions)) return undefined;
+
+	const entries: InstructionEntry[] = [];
+	for (const value of instructions) {
+		if (typeof value !== "object" || value === null) continue;
+		const record = value as Record<string, unknown>;
+		if (typeof record.text !== "string") continue;
+		if (record.key !== undefined && typeof record.key !== "string") continue;
+		entries.push({
+			key: typeof record.key === "string" ? record.key : undefined,
+			text: record.text,
+		});
+	}
+	return entries;
 }
 
 /**
- * True when a part is the `core/environment` source. A key wins even when the metadata text is stale, because core
- * does not update that copy when a hook edits `text`; without a key the entry is matched to its own part text.
+ * True when a part carries the `core/environment` source. A key wins even when the metadata text is stale, because
+ * core does not update that copy when a hook edits `text`; without a key the entry is matched to its own part text.
+ * Core concatenates several instruction sources into one part, so selection is by entry, not by part text.
  */
 function isEnvironmentPart(part: InstructionPart): boolean {
 	if (part.type !== "text") return false;
-	const entry = instructionsEntry(part.metadata);
-	if (entry === undefined) return false;
-	if (entry.key !== undefined) return entry.key === environmentSourceKey;
-	return entry.text === part.text;
+	const entries = instructionsEntries(part.metadata);
+	if (entries === undefined) return false;
+	return entries.some(
+		(entry) =>
+			entry.key === environmentSourceKey ||
+			(entry.key === undefined && entry.text === part.text),
+	);
 }
 
 /** Replaces stand-alone occurrences of `defaultRoot`; paths that extend it on either side are preserved. */

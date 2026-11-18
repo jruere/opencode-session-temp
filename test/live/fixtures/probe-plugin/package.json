@@ -1,0 +1,9 @@
+{
+	"$schema": "https://json.schemastore.org/package.json",
+	"name": "opencode-session-temp-probe",
+	"private": true,
+	"type": "module",
+	"exports": {
+		".": "./index.ts"
+	}
+}

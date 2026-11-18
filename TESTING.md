@@ -26,11 +26,17 @@ test/
   lifecycle.test.ts
   plugin.test.ts
   live/                opt-in; `*.live.ts`, not in the default run
+    helpers/live-server.ts    isolated HOME, real server, scripted provider
+    fixtures/probe-plugin/    records the system parts after the rewrite
+    instructions.live.ts
+    write.live.ts
 ```
 
 `test/live/` is excluded from the default run because it needs a real server. Name live files `*.live.ts` so the
 default glob skips them, keep them runnable with `devenv tasks run test:live` (or `npm run test:live`), and run them
-before a release. The npm scripts mirror the devenv tasks; `devenv test` remains the full verification pass.
+before a release. They need `opencode` (the pinned 2.2.6 server) on `PATH`; `OPENCODE_BIN` overrides the binary. Each
+check starts an isolated `HOME` and its own ports, so it does not touch the user's config, sessions, or scratch root.
+The npm scripts mirror the devenv tasks; `devenv test` remains the full verification pass.
 
 ## Testability rules for `src/`
 
@@ -99,8 +105,9 @@ table tests miss.
 | Non-text parts | Untouched |
 | Metadata | `metadata.experimental.instructions` is not rewritten; it is a copy |
 
-The fixture should be a minimal `core/environment` part, not core's full prose. Pin it once, and let the live check
-detect upstream drift.
+The fixture should be a minimal `core/environment` part, not core's full prose. Its
+`metadata.experimental.instructions` is an array of `{ key, text }` entries, matching core 2.2.6, which concatenates
+several instruction sources into one part. Pin it once, and let the live check detect upstream drift.
 
 ### `enforce.test.ts`
 
@@ -201,6 +208,9 @@ That last test is a regression guard for the design decision in the README.
 
 These are opt-in and not matched by the default test glob. Run them with `devenv tasks run test:live` (or
 `npm run test:live`) before a release and after an OpenCode upgrade.
+
+Checks 1 and 2 are implemented in `test/live/`. Check 3 stays on the manual checklist: proving that a configured
+`deny` never reaches the hook needs a permission-hook probe in addition to the scripted provider.
 
 1. **Instruction visibility.** Load a second probe plugin after this one. Its `context` hook sees the system parts
    after the first plugin rewrote them. Persist the parts and assert the session directory is present. Also assert the
@@ -310,17 +320,12 @@ the suite headers.
 - Do not assert that a configured `deny` reaches the hook. Core does not call the hook in that case.
 - Do not let tests write to the production default root.
 
-## Open decisions to pin with a test
+## Pinned decisions
 
-These are ambiguous in the README. Decide each explicitly, document it, and add the test.
-
-1. A loose file directly under the scratch root: blocked, or left alone? The README only names other session
-   directories.
-2. A symlink inside a session's own directory that points to another session's file: classify by lexical path or
-   resolved path? The former allows an overwrite; the latter is stricter. The non-goal "security isolation" may
-   settle this, but write enforcement is the stated goal.
-3. `maxAgeHours` on `noatime` and `relatime` mounts: is mtime alone sufficient, or is a touch-on-use strategy needed?
-4. Invalid options: reject during `setup`, or fall back to defaults with a warning?
+- A loose file directly under the scratch root or a project directory is left alone.
+- A symlink inside the own directory is classified lexically, without resolving its target.
+- A file is stale only when both `atime` and `mtime` are strictly older than the cutoff; no touch-on-use.
+- Invalid options reject `setup` with the option name and the bad value; no silent fallback.
 
 Project slug length is pinned: the readable part keeps the last 48 characters, and the slug is at most 56 bytes.
 Covered by the `Long segment` and `Filesystem root` cases.
