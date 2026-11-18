@@ -224,7 +224,7 @@ drive a homemade async iterable without a transport. `index.ts` only supplies `c
 - Cleanup aborts the controller and awaits the loop's termination. The loop tolerates abort between events and treats
   `AbortError` as normal termination.
 
-### M6: wiring
+### M6: wiring (DONE)
 
 Implement option parsing and validation first, then the resolver, then registrations.
 

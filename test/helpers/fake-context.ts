@@ -2,9 +2,9 @@
  * Fake OpenCode V2 plugin context for wiring tests.
  *
  * Implements only the surface the plugin uses: `location`, `options`, `session.get`, `session.hook`,
- * `permission.hook`, and `event.subscribe`. It records hook and subscription registrations, returns disposable
- * registrations, and lets a test fire a hook with a mutable event or push a lifecycle event through the
- * subscription stream.
+ * `permission.hook`, and `event.subscribe`. It records hook and subscription registrations and the order in which
+ * registrations are disposed, returns disposable registrations, and lets a test fire a hook with a mutable event or
+ * push a lifecycle event through the subscription stream.
  *
  * Not covered here: core's rule evaluation, provider dispatch, tools, and the real event transport. All casts to
  * `Plugin.Context` live in this module so no test needs one.
@@ -46,10 +46,12 @@ export interface FakeContext {
 	readonly context: Context;
 	readonly sessionGetCalls: string[];
 	readonly subscriptions: FakeSubscription[];
+	readonly disposals: string[];
 	hookNames(): string[];
 	fireSessionHook(name: string, input: unknown): Promise<void>;
 	firePermissionHook(name: string, input: unknown): Promise<void>;
 	push(event: FakeEvent): void;
+	setSession(session: FakeSession): void;
 	disposeAll(): Promise<void>;
 }
 
@@ -60,6 +62,7 @@ export function createFakeContext(input: FakeContextOptions = {}): FakeContext {
 	);
 	const sessionGetCalls: string[] = [];
 	const subscriptions: FakeSubscription[] = [];
+	const disposals: string[] = [];
 	const hooks = new Map<string, Hook[]>();
 	const registrations: Registration[] = [];
 
@@ -67,8 +70,12 @@ export function createFakeContext(input: FakeContextOptions = {}): FakeContext {
 		const registered = hooks.get(name) ?? [];
 		registered.push(callback);
 		hooks.set(name, registered);
+		let disposed = false;
 		const registration: Registration = {
 			dispose: async () => {
+				if (disposed) return;
+				disposed = true;
+				disposals.push(name);
 				const index = registered.indexOf(callback);
 				if (index !== -1) registered.splice(index, 1);
 			},
@@ -131,11 +138,19 @@ export function createFakeContext(input: FakeContextOptions = {}): FakeContext {
 		} as unknown as Context,
 		sessionGetCalls,
 		subscriptions,
-		hookNames: () => [...hooks.keys()].sort(),
+		disposals,
+		hookNames: () =>
+			[...hooks.entries()]
+				.filter(([, callbacks]) => callbacks.length > 0)
+				.map(([name]) => name)
+				.sort(),
 		fireSessionHook: (name, hookInput) => fire(`session.${name}`, hookInput),
 		firePermissionHook: (name, hookInput) =>
 			fire(`permission.${name}`, hookInput),
 		push: (lifecycleEvent) => stream.push(lifecycleEvent),
+		setSession: (session) => {
+			sessions.set(session.sessionID, session);
+		},
 		disposeAll: async () => {
 			for (const registration of registrations.reverse())
 				await registration.dispose();
