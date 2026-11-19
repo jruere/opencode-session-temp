@@ -13,8 +13,8 @@ effectively verifies them exhaustively.
 | --- | --- | --- |
 | `src/fs-errors.ts` | `isMissing`, `isNotEmpty`, `isDestinationExists` | Done in `test/fs-errors.test.ts` |
 | `src/layout.ts` | `isInside`, `sessionSegment`, `isSessionSegment`, `projectSlug`, `resolveLayout` | Done in `test/layout.test.ts` |
-| `src/enforce.ts` | `evaluateEdit`, `evaluateExternal`, `applyPermission` | Next |
-| `src/instructions.ts` | `rewriteInstructions` and the `replaceRoot` boundary logic | Planned |
+| `src/enforce.ts` | `evaluateEdit`, `evaluateExternal`, `applyPermission` | Done in `test/enforce.test.ts` |
+| `src/instructions.ts` | `rewriteInstructions` and the `replaceRoot` boundary logic | Next |
 | `src/sweep.ts` | `isStale`, `entryKind`, `childRole`, `decideEntry` | Planned |
 | `src/logging.ts` | `warnOnce` | Planned |
 | `src/index.ts` | `parseOptions`, `createSessionResolver` | Optional, higher effort |
@@ -69,28 +69,34 @@ Covered laws:
 These protect the core safety boundary: a prefix or traversal bug here would let one session write into another
 without any other module noticing.
 
-## Next: `src/enforce.ts`
+## Done: `src/enforce.ts`
 
-Functions: `evaluateEdit`, `evaluateExternal`, `applyPermission`. The decision functions have algebraic laws that
-a table of cases cannot establish generally.
+Functions: `evaluateEdit`, `evaluateExternal`, `applyPermission`. The generated cases live alongside the table-driven
+cases in `test/enforce.test.ts`. Generators draw resources from the caller's own directory and descendants, foreign
+session directories (other projects and same-project siblings with shared prefixes), loose files under the root, and
+paths outside it, then render each as an absolute, relative, or literal-traversal spelling of the same location. The
+mix is biased toward foreign session paths, the largest single category, so most generated arrays contain a deciding
+resource.
 
-- Compositionality: `evaluateEdit(resources)` returns a decision if and only if some singleton `evaluateEdit([r])`
-  does. The same law holds for `evaluateExternal`.
-- Monotonicity: adding resources cannot turn a block into no block. Enabling `allowExternal` can only add an allow,
-  never remove one; with `false`, no external decision is produced.
-- `mode` changes only `effect`, never whether a decision exists.
-- Normalization invariance: classifying `[r]` and `[path.resolve(r)]` gives the same result.
-- Own directory and all its descendants are always allowed. Any valid foreign session directory under the root is
-  always blocked, and the message names both the caller's directory and the resolved resource.
-- `applyPermission` writes only `effect` and `message` and is idempotent. For `edit`, `mode: "off"` leaves the
-  evaluation untouched; `external_directory` is still allowed when `allowExternal` is true, so restrict the no-op law
-  to `edit`.
+Covered laws:
 
-Generators: arrays of resources drawn from a generated root, own directory, sibling directories with shared prefixes,
-foreign session directories, paths outside the root, and relative or traversal-shaped spellings. Bias generation so
-that valid `ses*` segments appear often; otherwise most cases fall into the "outside the root" branch.
+- `evaluateEdit(resources)` returns a decision iff some singleton `evaluateEdit([r])` does, and the combined result is
+  the first such singleton decision; `evaluateExternal` obeys the same compositionality law with `allowExternal: true`.
+- Adding resources cannot remove a block or an allow. This follows from compositionality, so it has no separate
+  property: the first deciding resource of an appended array is still the first deciding resource of the original
+  array. `allowExternal: false` is an absolute gate and never produces an allow.
+- Switching `mode` between `deny` and `ask` flips only `effect`; whether a decision exists and its message are unchanged.
+- Normalizing a resource with `path.resolve` does not change either decision, for absolute, relative, and
+  traversal-shaped spellings.
+- The own directory and all its descendants are always left alone; loose files and paths outside the root produce no
+  decision; any foreign session directory is always blocked with a message naming the caller's directory and the
+  resolved resource.
+- `applyPermission` writes only `effect` and `message`, preserves every other field, and is idempotent. `mode: "off"`
+  leaves `edit` events untouched, while `external_directory` is still allowed when enabled.
 
-## Planned: `src/instructions.ts`
+These protect the cross-session write boundary from a refactor of the decision loop or the path normalization step.
+
+## Next: `src/instructions.ts`
 
 Function: `rewriteInstructions`, including the boundary logic in the internal `replaceRoot`. This is the fiddliest
 string code in the project, so shrinking has the most value here.
