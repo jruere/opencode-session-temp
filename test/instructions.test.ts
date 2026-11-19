@@ -2,6 +2,12 @@
  * Covers instruction rewriting from README "Model instructions": source selection, boundary-accurate replacement,
  * idempotence, stable fallbacks, the per-session mkdir cache, warning deduplication, and enrichment disablement.
  *
+ * Generated cases check the rewrite over a whole input space: idempotence, the no-op contract, fallback stability,
+ * non-text and metadata immutability, and the left/right boundary rule against a declarative oracle. Generated roots
+ * are path-shaped: every character except a Windows drive colon is in `leftContinuation`, and the colon cannot precede
+ * a nested occurrence because the root starts with the drive prefix. A nested occurrence is therefore always
+ * left-blocked, which keeps the oracle equivalent to the scanner, which skips the interior of a rejected occurrence.
+ *
  * Does not cover hook registration or per-instance state ownership (M6), permission decisions, or cleanup. The pure
  * rewrite never touches the filesystem; adapter tests inject resolvers and mkdir except for the one test that pins the
  * default mkdir against a real temporary root.
@@ -12,6 +18,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { test } from "node:test";
 import { format } from "node:util";
+import fc from "fast-check";
 import {
 	applyInstructions,
 	createInstructionState,
@@ -736,4 +743,330 @@ test("when_a_session_is_forgotten_then_the_next_call_retries_its_directory", asy
 	assert.deepEqual(afterForget, { disabled: false, cached: false });
 	assert.equal(source.text.includes(sessionDir), true);
 	assert.equal(resolveCalls, 2);
+});
+
+// ---------------------------------------------------------------------------
+// Generated properties
+// ---------------------------------------------------------------------------
+// The table cases above pin documented examples. The properties below check the rewrite over a whole input space:
+// idempotence, the no-op contract, fallback stability, non-text and metadata immutability, and the boundary rule
+// against a declarative regex oracle. Arbitrary text supplies the characters that decide each boundary.
+
+const rootPrefix = path.parse(path.resolve(".")).root;
+const propertyRoot = path.join(rootPrefix, "session-temp-property-tests");
+
+/** Safe, separator-free segments, so joining them always yields a strict descendant. */
+const safeSegmentArb = fc.stringMatching(/^[A-Za-z0-9_-]{1,8}$/);
+
+/** An absolute path-shaped string built with `path.sep`, including the filesystem root itself. */
+const pathLikeArb = fc
+	.array(safeSegmentArb, { minLength: 0, maxLength: 5 })
+	.map((segments) => rootPrefix + segments.join(path.sep));
+
+/** A distinctive generated session directory, long enough that arbitrary text never contains it. */
+const sessionDirArb = fc
+	.array(safeSegmentArb, { minLength: 0, maxLength: 3 })
+	.map((segments) =>
+		path.join(propertyRoot, "project", "ses_generated", ...segments),
+	);
+
+/** The default root, including the empty-string boundary case. */
+const defaultRootArb = fc.oneof(
+	{ weight: 8, arbitrary: pathLikeArb },
+	{ weight: 1, arbitrary: fc.constant("") },
+);
+
+const instructionEntryArb = fc.record({
+	key: fc.option(fc.string(), { nil: undefined }),
+	text: fc.string(),
+});
+
+const metadataArb = fc.option(
+	fc.record({
+		experimental: fc.record({
+			instructions: fc.array(instructionEntryArb, { maxLength: 3 }),
+		}),
+	}),
+	{ nil: undefined },
+);
+
+/** Normalizes fast-check's null-prototype records so snapshots taken with `structuredClone` compare equal. */
+function normalized<T>(arb: fc.Arbitrary<T>): fc.Arbitrary<T> {
+	return arb.map((value) => structuredClone(value));
+}
+
+/** A text part carrying a real `core/environment` entry, so the source-selection path is generated too. */
+const environmentPartArb = fc.string().map((text) => ({
+	type: "text",
+	text,
+	metadata: {
+		experimental: {
+			instructions: [{ key: "core/environment", text }],
+		},
+	},
+}));
+
+const partArb = normalized(
+	fc.oneof(
+		fc.record({
+			type: fc.constantFrom("text", "media", "reasoning"),
+			text: fc.string(),
+			metadata: metadataArb,
+		}),
+		environmentPartArb,
+	),
+);
+
+const partsArb = fc.array(partArb, { maxLength: 4 });
+
+interface TextPiece {
+	readonly kind:
+		| "raw"
+		| "bare"
+		| "sentenceDot"
+		| "jsonName"
+		| "hyphenSuffix"
+		| "underscoreSuffix"
+		| "child"
+		| "dotPrefix"
+		| "dotDotPrefix"
+		| "separatorPrefix"
+		| "parenthesized"
+		| "leadingSpace"
+		| "trailingSpace"
+		| "trailingSeparator"
+		| "repeated"
+		| "adjacent";
+	readonly text: string;
+}
+
+const pieceArb: fc.Arbitrary<TextPiece> = fc.oneof(
+	fc
+		.string({ maxLength: 12 })
+		.map((text): TextPiece => ({ kind: "raw", text })),
+	fc
+		.constantFrom(
+			"bare",
+			"sentenceDot",
+			"jsonName",
+			"hyphenSuffix",
+			"underscoreSuffix",
+			"child",
+			"dotPrefix",
+			"dotDotPrefix",
+			"separatorPrefix",
+			"parenthesized",
+			"leadingSpace",
+			"trailingSpace",
+			"trailingSeparator",
+			"repeated",
+			"adjacent",
+		)
+		.map((kind): TextPiece => ({ kind, text: "" })),
+);
+
+/** Renders a piece around the generated root, covering both boundary sides and repeated occurrences. */
+function renderPiece(piece: TextPiece, root: string): string {
+	switch (piece.kind) {
+		case "raw":
+			return piece.text;
+		case "bare":
+			return root;
+		case "sentenceDot":
+			return `${root}.`;
+		case "jsonName":
+			return `${root}.json`;
+		case "hyphenSuffix":
+			return `${root}-other`;
+		case "underscoreSuffix":
+			return `${root}_other`;
+		case "child":
+			return `${root}${path.sep}child`;
+		case "dotPrefix":
+			return `.${root}`;
+		case "dotDotPrefix":
+			return `..${root}`;
+		case "separatorPrefix":
+			return `${path.sep}x${root}`;
+		case "parenthesized":
+			return `(${root})`;
+		case "leadingSpace":
+			return ` ${root}`;
+		case "trailingSpace":
+			return `${root} `;
+		case "trailingSeparator":
+			return `${root}${path.sep}`;
+		case "repeated":
+			return `${root} ${root}`;
+		case "adjacent":
+			return `${root}${root}`;
+	}
+}
+
+const leftContinuationClass = String.raw`[A-Za-z0-9._~\-/\\]`;
+const rightBoundaryLookahead = String.raw`(?=$|[/\\]|\.(?:[^A-Za-z0-9._~\-/\\]|$)|[^A-Za-z0-9._~\-\\])`;
+
+/** A declarative statement of the boundary rule, independent of the scanner in `src/instructions.ts`. */
+function expectedRewrittenText(
+	text: string,
+	root: string,
+	sessionDir: string,
+): string {
+	const escapedRoot = root.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+	const pattern = new RegExp(
+		`(?<!${leftContinuationClass})${escapedRoot}${rightBoundaryLookahead}`,
+		"g",
+	);
+	return text.replace(pattern, () => sessionDir);
+}
+
+test("when_the_rewrite_returns_false_then_it_leaves_the_parts_unchanged", () => {
+	// Setup: generated parts, roots including the empty string, session directories, and an input that already
+	// contains the session directory.
+
+	// Execution: rewrite each input once.
+	fc.assert(
+		fc.property(
+			partsArb,
+			defaultRootArb,
+			sessionDirArb,
+			fc.boolean(),
+			(parts, root, dir, alreadyRewritten) => {
+				const input: InstructionPart[] = alreadyRewritten
+					? [{ type: "text", text: `Files live under ${dir}.` }, ...parts]
+					: parts;
+				const before = structuredClone(input);
+				const subject = rewriteInstructions(input, root, dir);
+
+				// Assertions: an already-enriched input is a no-op, and any false result leaves every part alone.
+				if (alreadyRewritten) assert.equal(subject, false);
+				if (!subject) assert.deepEqual(input, before);
+			},
+		),
+	);
+});
+
+test("when_the_rewrite_runs_twice_then_it_returns_false_and_changes_nothing", () => {
+	// Setup: generated parts and roots, with and without an environment source that names the root.
+
+	// Execution: run the rewrite twice, snapshotting between calls.
+	fc.assert(
+		fc.property(
+			partsArb,
+			pathLikeArb,
+			sessionDirArb,
+			fc.boolean(),
+			(parts, root, dir, includeSource) => {
+				const input: InstructionPart[] = includeSource
+					? [makeEnvironmentPart(`Scratch files live under ${root}.`), ...parts]
+					: parts;
+				rewriteInstructions(input, root, dir);
+				const afterFirst = structuredClone(input);
+				const subject = rewriteInstructions(input, root, dir);
+
+				// Assertions: idempotence holds for an in-place rewrite and for an appended fallback alike.
+				assert.equal(subject, false);
+				assert.deepEqual(input, afterFirst);
+			},
+		),
+	);
+});
+
+test("when_the_rewrite_appends_a_fallback_then_it_adds_one_part_derived_from_the_session_directory", () => {
+	// Setup: generated parts that usually lack an environment source, plus generated roots and directories.
+
+	// Execution: rewrite each array and compare with an independent run over a different array and root.
+	fc.assert(
+		fc.property(partsArb, defaultRootArb, sessionDirArb, (parts, root, dir) => {
+			const before = structuredClone(parts);
+			const subject = rewriteInstructions(parts, root, dir);
+			const appended = parts.length - before.length;
+
+			// Assertions: a false result never appends, and an append adds exactly one trailing text part.
+			if (!subject) assert.equal(appended, 0);
+			if (appended === 0) return;
+			assert.equal(appended, 1);
+			assert.deepEqual(parts.slice(0, before.length), before);
+			const fallback = parts.at(-1);
+			assert.equal(fallback?.type, "text");
+			assert.equal(fallback?.text.includes(dir), true);
+
+			// Assertions: the fallback text depends only on the session directory, not on the parts or the root.
+			const independent: InstructionPart[] = [
+				{ type: "text", text: "A different plain part." },
+			];
+			rewriteInstructions(independent, `${root}${path.sep}other`, dir);
+			assert.deepEqual(independent.at(-1), fallback);
+		}),
+	);
+});
+
+test("when_the_source_is_rewritten_then_it_leaves_non-text_parts_and_metadata_untouched", () => {
+	// Setup: non-text parts with arbitrary metadata, a source that starts with a stand-alone root, and a session
+	// directory long enough that arbitrary text cannot already contain it.
+	const nonTextPartsArb = fc.array(
+		normalized(
+			fc.record({
+				type: fc.constantFrom("media", "reasoning"),
+				text: fc.string(),
+				metadata: metadataArb,
+			}),
+		),
+		{ maxLength: 3 },
+	);
+
+	// Execution: rewrite each source in place.
+	fc.assert(
+		fc.property(
+			nonTextPartsArb,
+			pathLikeArb,
+			fc.string({ maxLength: 40 }),
+			sessionDirArb,
+			(nonText, root, text, dir) => {
+				const source = makeEnvironmentPart(`${root} ${text}`);
+				const parts: InstructionPart[] = [...nonText, source];
+				const before = structuredClone(nonText);
+				const metadata = source.metadata;
+				const metadataBefore = structuredClone(metadata);
+
+				const subject = rewriteInstructions(parts, root, dir);
+
+				// Assertions: the source is selected and rewritten, while every other part and the metadata copy
+				// stay byte-identical and keep their identity.
+				assert.equal(subject, true);
+				assert.equal(source.text.includes(dir), true);
+				assert.equal(parts.length, nonText.length + 1);
+				assert.deepEqual(nonText, before);
+				assert.equal(source.metadata, metadata);
+				assert.deepEqual(source.metadata, metadataBefore);
+			},
+		),
+	);
+});
+
+test("when_the_default_root_appears_then_it_replaces_only_stand-alone_occurrences", () => {
+	// Setup: path-shaped roots, generated session directories, and text assembled from pieces that exercise both
+	// boundaries, repeated occurrences, trailing separators, and the documented collision shapes.
+
+	// Execution: rewrite a generated source and compare with a declarative boundary oracle.
+	fc.assert(
+		fc.property(
+			pathLikeArb,
+			fc.array(pieceArb, { maxLength: 8 }),
+			sessionDirArb,
+			(root, pieces, dir) => {
+				const text = pieces.map((piece) => renderPiece(piece, root)).join("");
+				const source = makeEnvironmentPart(text);
+				const parts: InstructionPart[] = [source];
+				const expected = expectedRewrittenText(text, root, dir);
+
+				const subject = rewriteInstructions(parts, root, dir);
+
+				// Assertions: the source text matches the oracle, and a miss appends exactly one fallback part.
+				assert.equal(source.text, expected);
+				assert.equal(subject, true);
+				assert.equal(parts.length, expected === text ? 2 : 1);
+			},
+		),
+	);
 });

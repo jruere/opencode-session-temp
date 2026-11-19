@@ -14,8 +14,8 @@ effectively verifies them exhaustively.
 | `src/fs-errors.ts` | `isMissing`, `isNotEmpty`, `isDestinationExists` | Done in `test/fs-errors.test.ts` |
 | `src/layout.ts` | `isInside`, `sessionSegment`, `isSessionSegment`, `projectSlug`, `resolveLayout` | Done in `test/layout.test.ts` |
 | `src/enforce.ts` | `evaluateEdit`, `evaluateExternal`, `applyPermission` | Done in `test/enforce.test.ts` |
-| `src/instructions.ts` | `rewriteInstructions` and the `replaceRoot` boundary logic | Next |
-| `src/sweep.ts` | `isStale`, `entryKind`, `childRole`, `decideEntry` | Planned |
+| `src/instructions.ts` | `rewriteInstructions` and the `replaceRoot` boundary logic | Done in `test/instructions.test.ts` |
+| `src/sweep.ts` | `isStale`, `entryKind`, `childRole`, `decideEntry` | Next |
 | `src/logging.ts` | `warnOnce` | Planned |
 | `src/index.ts` | `parseOptions`, `createSessionResolver` | Optional, higher effort |
 
@@ -96,25 +96,39 @@ Covered laws:
 
 These protect the cross-session write boundary from a refactor of the decision loop or the path normalization step.
 
-## Next: `src/instructions.ts`
+## Done: `src/instructions.ts`
 
-Function: `rewriteInstructions`, including the boundary logic in the internal `replaceRoot`. This is the fiddliest
-string code in the project, so shrinking has the most value here.
+Function: `rewriteInstructions`, including the boundary logic in the internal `replaceRoot`. The generated cases live
+alongside the table-driven cases in `test/instructions.test.ts`.
 
-- Idempotence: a second call returns `false` and leaves the parts byte-identical. Equivalently,
-  `rewrite(rewrite(parts))` equals `rewrite(parts)`.
-- When the function returns `false`, the parts deep-equal their input. When it appends, exactly one fallback part is
-  added and its text is a pure function of `sessionDir`.
+Covered laws:
+
+- Idempotence: a second call returns `false` and leaves the parts byte-identical, both for an in-place rewrite and for
+  an appended fallback. When the function returns `false`, the parts deep-equal their input, including the empty-root
+  and already-enriched cases.
+- When it appends, exactly one text part is added, the original parts are untouched, and the appended text depends
+  only on `sessionDir`: an independent array with a different root produces the same fallback.
 - Boundary law: an occurrence of `defaultRoot` is replaced exactly when the preceding character is not in
-  `leftContinuation` and the following text passes `isRightBoundary`. The two regexes are deliberately asymmetric:
-  a dot blocks on the left, but on the right it blocks only when it starts a longer name. Generated surroundings
-  should cover `opencode.`, `opencode.json`, `/tmp/opencode-other`, repeated occurrences, and a trailing separator.
+  `leftContinuation` and the following text passes `isRightBoundary`. A declarative regex with a lookbehind and a
+  lookahead states the rule independently of the scanner. The two boundary rules are deliberately asymmetric: a dot
+  blocks on the left, but on the right it blocks only when the character after it continues the path token
+  (`leftContinuation`, including a separator), as in `opencode.json`; a dot before sentence punctuation or the end of
+  the text does not block. Generated surroundings cover `opencode.`, `opencode.json`, `/tmp/opencode-other`, repeated
+  occurrences (spaced and adjacent), a trailing separator, both prefix sides, and arbitrary text.
 - Non-text parts and `metadata.experimental.instructions` are never modified, even when the source part is rewritten.
+  The metadata object keeps its identity.
 
-Generators: arrays of text and non-text parts with arbitrary text, an optional `core/environment` metadata entry,
-generated `defaultRoot` and `sessionDir` values, and `defaultRoot === ""` as a boundary case.
+Generators: arrays of text and non-text parts with arbitrary text and metadata, a real `core/environment` entry plus a
+prepended source that names the root for the in-place path, generated `defaultRoot` and `sessionDir` values, and
+`defaultRoot === ""` as a boundary case. Generated roots are path-shaped: every character except a Windows drive colon
+is in `leftContinuation`, and the colon cannot precede a nested occurrence because the root starts with the drive
+prefix. A nested occurrence is therefore always left-blocked, which keeps the declarative oracle equivalent to the
+scanner, which skips the interior of a rejected occurrence.
 
-## Planned: `src/sweep.ts`
+These protect the prompt cache and the model-visible instruction from a second appended fallback, a missed in-place
+rewrite, or a prefix-corrupting replacement.
+
+## Next: `src/sweep.ts`
 
 Functions: `isStale`, `entryKind`, `childRole`, `decideEntry`. Their domains are small and finite, so a generator acts
 as exhaustive verification of the pure policy.
