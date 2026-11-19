@@ -19,10 +19,12 @@
 
 - Project operations are defined in both `devenv.nix` (devenv tasks) and `package.json` (npm scripts). Keep them in
   sync: same commands, globs, and coverage thresholds.
-- Run `devenv test` for every verification pass. It runs `test:typecheck`, `test:unit`, and the pre-commit hooks on
-  all files, staged or not, including tests, linters, and formatters.
-- The npm scripts (`npm test`, `npm run test:typecheck`, `npm run test:live`, `npm run test:coverage`, `npm run check`)
-  are convenience entry points. They do not run the git hooks, so they are not a substitute for `devenv test`.
+- Run `devenv test` for every verification pass. It runs `test:typecheck`, `test:coverage`, and the pre-commit hooks on
+  all files, staged or not, including tests, linters, and formatters. The coverage task uses the `dot` reporter, so the
+  coverage table appears only when a threshold is violated.
+- Keep `test:unit` for tests without coverage: `devenv tasks run test:unit` or `npm test`. The npm scripts
+  (`npm test`, `npm run test:typecheck`, `npm run test:live`, `npm run test:coverage`, `npm run check`) are convenience
+  entry points. They do not run the git hooks, so they are not a substitute for `devenv test`.
 - Do not run `node --test`, `tsc --noEmit`, `biome`, or individual hook commands as a substitute for `devenv test`
   either. They are not equivalent: they skip the configured hooks and their order. Run one only to debug a failure
   that `devenv test` already reported or for non-tracked files.

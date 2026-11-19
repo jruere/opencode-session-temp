@@ -26,8 +26,8 @@
 
   # https://devenv.sh/tasks/
   # Keep these tasks in sync with the package.json scripts: same commands, globs, and
-  # coverage thresholds. `devenv test` runs test:typecheck and test:unit because both
-  # run before devenv:enterTest.
+  # coverage thresholds. `devenv test` runs test:typecheck and test:coverage because both
+  # run before devenv:enterTest. test:unit stays available for coverage-free runs.
   tasks = {
     "npm:install" = {
       exec = "npm ci --no-audit --no-fund";
@@ -47,12 +47,11 @@
       before = [ "devenv:enterTest" ];
     };
 
+    # Coverage-free runs: `devenv tasks run test:unit` (or `npm test`). Not selected by
+    # `devenv test`, which runs test:coverage in its place.
     "test:unit" = {
       exec = "node --test 'test/**/*.test.ts'";
-      # npm:install brings enterShell. `devenv test` selects the git hooks separately;
-      # tests do not wait for them.
       after = [ "npm:install" ];
-      before = [ "devenv:enterTest" ];
     };
 
     "test:live" = {
@@ -60,9 +59,13 @@
       after = [ "npm:install" ];
     };
 
+    # The dot reporter prints the coverage table only when a threshold is violated.
+    # npm:install brings enterShell. `devenv test` selects the git hooks separately;
+    # tests do not wait for them.
     "test:coverage" = {
-      exec = "node --test --experimental-test-coverage --test-coverage-include='src/**' --test-coverage-lines=80 --test-coverage-functions=80 --test-coverage-branches=80 'test/**/*.test.ts'";
+      exec = "node --test --experimental-test-coverage --test-coverage-include='src/**' --test-coverage-lines=80 --test-coverage-functions=80 --test-coverage-branches=80 --test-reporter=dot 'test/**/*.test.ts'";
       after = [ "npm:install" ];
+      before = [ "devenv:enterTest" ];
     };
   };
 

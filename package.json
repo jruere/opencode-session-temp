@@ -13,7 +13,7 @@
 	"scripts": {
 		"test": "node --test 'test/**/*.test.ts'",
 		"test:live": "node --test 'test/live/*.live.ts'",
-		"test:coverage": "node --test --experimental-test-coverage --test-coverage-include='src/**' --test-coverage-lines=80 --test-coverage-functions=80 --test-coverage-branches=80 'test/**/*.test.ts'",
+		"test:coverage": "node --test --experimental-test-coverage --test-coverage-include='src/**' --test-coverage-lines=80 --test-coverage-functions=80 --test-coverage-branches=80 --test-reporter=dot 'test/**/*.test.ts'",
 		"test:typecheck": "tsc --noEmit",
 		"check": "biome check ."
 	},

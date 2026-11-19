@@ -1,15 +1,19 @@
 /**
  * Covers project slug derivation, session segment validation, containment, and the per-session scratch layout
- * from README "Layout".
+ * from README "Layout". Table-driven cases pin documented examples; generated cases check the laws that hold over
+ * the whole lexical path space, including prefix, traversal, and unicode spellings.
  *
- * Does not cover directory creation, instruction rewriting, permission decisions, or cleanup. Every filesystem
- * path derives from a fresh temporary root, never the production default.
+ * Does not cover directory creation, instruction rewriting, permission decisions, or cleanup. Generated paths are
+ * lexical strings built from `path.sep` and `path.join`, while table cases use a fresh temporary root, never the
+ * production default. The CRC32 hash is not assumed injective: distinct directory/project pairs may share a slug.
  */
 import assert from "node:assert/strict";
 import path from "node:path";
 import { test } from "node:test";
+import fc from "fast-check";
 import {
 	isInside,
+	isSessionSegment,
 	projectSlug,
 	resolveLayout,
 	sessionSegment,
@@ -331,61 +335,307 @@ test("when_layout_is_resolved_twice_then_the_paths_are_identical", async (t) => 
 		location: { directory },
 	};
 
-	// Execution: resolve the slug and layout again.
+	// Execution: resolve the layout again.
 	const first = resolveLayout(root, session);
 	const second = resolveLayout(root, session);
 
 	// Assertions: derivation is deterministic.
-	assert.equal(
-		projectSlug(directory, "prj_stable"),
-		projectSlug(directory, "prj_stable"),
-	);
 	assert.deepEqual(second, first);
 });
 
-test("when_many_sessions_are_resolved_then_each_session_directory_is_a_strict_descendant_of_its_project_directory", async (t) => {
-	// Setup: a deterministic mix of sessions spread over projects and workspaces.
-	const root = await makeTmpRoot(t);
-	const sessions = Array.from({ length: 24 }, (_, index) => ({
-		sessionID: `ses_prop_${index.toString(36)}`,
-		projectID: `prj_${index % 5}`,
-		location: {
-			directory: path.join(root, `group${index % 3}`, `workspace${index % 4}`),
-		},
-	}));
+const rootPrefix = path.parse(path.resolve(".")).root;
+const fixedRoot = path.join(rootPrefix, "tmp", "opencode-property-tests");
 
-	// Execution: resolve every layout.
-	const subjects = sessions.map((session) => resolveLayout(root, session));
+/** Non-empty, separator-free segments, so joining them always yields a strict descendant. */
+const safeSegmentArb = fc.stringMatching(/^[A-Za-z0-9_-]{1,8}$/);
 
-	// Assertions: each session directory is a strict descendant of its own project directory.
-	for (const [index, subject] of subjects.entries()) {
-		assert.equal(isInside(subject.projectDir, subject.sessionDir), true);
-		assert.equal(
-			path.basename(subject.sessionDir),
-			sessionSegment(sessions[index]?.sessionID ?? ""),
-		);
-	}
+/** Segments with the spellings that tend to break lexical containment checks. */
+const pathSegmentArb = fc.oneof(
+	fc.constant("."),
+	fc.constant(".."),
+	fc.constant(""),
+	fc.constant("b"),
+	fc.constant("bc"),
+	fc.constant("ses_A"),
+	fc.constant("ses_AB"),
+	fc.constant("é"),
+	fc.constant(" "),
+	safeSegmentArb,
+);
+
+const segmentsArb = fc.array(pathSegmentArb, { minLength: 0, maxLength: 6 });
+
+/** Absolute lexical paths; literal joins keep `.`, `..`, and empty segments in the spelling. */
+const absolutePathArb = segmentsArb.map(
+	(segments) => rootPrefix + segments.join(path.sep),
+);
+
+/** Relative lexical paths, including `..` prefixes and the empty-path spelling. */
+const relativePathArb = segmentsArb.map((segments) => segments.join(path.sep));
+
+/** Absolute paths with literal `..` segments that a resolver must collapse. */
+const traversalPathArb = fc
+	.tuple(absolutePathArb, pathSegmentArb, pathSegmentArb)
+	.map(([base, one, two]) => `${base}${path.sep}${one}${path.sep}${two}`);
+
+/** A mix of absolute, relative, and traversal-shaped path strings. */
+const pathArb = fc.oneof(absolutePathArb, relativePathArb, traversalPathArb);
+
+/** Session IDs that satisfy `isSessionSegment` by construction. */
+const validSegmentArb = fc
+	.stringMatching(/^[A-Za-z0-9._-]{1,12}$/)
+	.map((suffix) => `ses${suffix}`);
+
+/** Session IDs with the spellings the sanitizer has to repair. */
+const rawSessionIDArb = fc.oneof(
+	validSegmentArb,
+	fc.string({ maxLength: 60 }),
+	fc.string({ minLength: 200, maxLength: 400 }),
+	fc.constant(""),
+	fc.constant(".."),
+	fc.constant(path.sep),
+	fc.constant("ses"),
+	fc.constant("SES_upper"),
+);
+
+const projectIDArb = fc.oneof(
+	fc.string({ maxLength: 80 }),
+	fc.constant(""),
+	fc.constant("prj_1"),
+);
+
+/** A session as `resolveLayout` receives it: the location directory is nested under `location`. */
+const sessionArb = fc.oneof(
+	{
+		weight: 4,
+		arbitrary: fc.record({
+			sessionID: rawSessionIDArb,
+			projectID: projectIDArb,
+			location: fc.record({ directory: pathArb }),
+		}),
+	},
+	{ weight: 1, arbitrary: fc.record({ sessionID: rawSessionIDArb }) },
+);
+
+/** Splits a slug at its last hyphen, which separates the readable part from the hash. */
+function splitSlug(slug: string): { readable: string; hash: string } {
+	const dash = slug.lastIndexOf("-");
+	return { readable: slug.slice(0, dash), hash: slug.slice(dash + 1) };
+}
+
+test("when_a_path_is_compared_with_itself_then_it_is_not_inside_itself", () => {
+	// Setup: absolute paths generated from arbitrary segment lists.
+
+	// Execution: compare every generated path with itself.
+	fc.assert(
+		fc.property(pathArb, (subject) => {
+			// Assertions: containment is irreflexive.
+			assert.equal(isInside(subject, subject), false);
+		}),
+	);
 });
 
-test("when_many_sessions_are_resolved_then_no_session_directory_contains_another", async (t) => {
-	// Setup: the same deterministic mix of sessions and a few shared last-two-segment directories.
-	const root = await makeTmpRoot(t);
-	const sessions = Array.from({ length: 24 }, (_, index) => ({
-		sessionID: `ses_prop_${index.toString(36)}`,
-		projectID: `prj_${index % 5}`,
-		location: {
-			directory: path.join(root, index % 2 === 0 ? "a/b" : "x/b", "c"),
-		},
-	}));
+test("when_two_paths_are_compared_in_both_directions_then_at_most_one_contains_the_other", () => {
+	// Setup: two independently generated path spellings.
 
-	// Execution: resolve every layout.
-	const subjects = sessions.map((session) => resolveLayout(root, session));
+	// Execution: classify both orientations.
+	fc.assert(
+		fc.property(pathArb, pathArb, (first, second) => {
+			// Assertions: containment is antisymmetric.
+			assert.equal(isInside(first, second) && isInside(second, first), false);
+		}),
+	);
+});
 
-	// Assertions: no session directory is equal to or inside another.
-	for (const first of subjects) {
-		for (const second of subjects) {
-			if (first === second) continue;
-			assert.equal(isInside(first.sessionDir, second.sessionDir), false);
-		}
-	}
+test("when_three_paths_form_a_descendant_chain_then_containment_is_transitive", () => {
+	// Setup: a base path and two safe segments appended in sequence.
+	const chainArb = fc
+		.tuple(absolutePathArb, safeSegmentArb, safeSegmentArb)
+		.map(([base, first, second]) => ({
+			parent: base,
+			middle: path.join(base, first),
+			child: path.join(base, first, second),
+		}));
+
+	// Execution: classify each link and the shortcut from parent to child.
+	fc.assert(
+		fc.property(chainArb, ({ parent, middle, child }) => {
+			// Assertions: the chain is strict at each step and transitive overall.
+			assert.equal(isInside(parent, middle), true);
+			assert.equal(isInside(middle, child), true);
+			assert.equal(isInside(parent, child), true);
+		}),
+	);
+});
+
+test("when_a_path_is_a_sibling_with_a_shared_prefix_then_it_is_not_inside_the_other", () => {
+	// Setup: a generated base path and two names where one is a strict textual prefix of the other.
+	const siblingArb = fc
+		.tuple(absolutePathArb, safeSegmentArb)
+		.map(([base, name]) => ({
+			parent: path.join(base, name),
+			sibling: path.join(base, `${name}x`),
+		}));
+
+	// Execution: classify the pair in both directions.
+	fc.assert(
+		fc.property(siblingArb, ({ parent, sibling }) => {
+			// Assertions: a shared textual prefix is not segment-aware containment.
+			assert.equal(isInside(parent, sibling), false);
+			assert.equal(isInside(sibling, parent), false);
+		}),
+	);
+});
+
+test("when_paths_are_resolved_then_containment_does_not_change", () => {
+	// Setup: absolute, relative, and traversal-shaped spellings, paired independently so mixed cases occur.
+
+	// Execution: classify the original pair and the fully resolved pair.
+	fc.assert(
+		fc.property(pathArb, pathArb, (parent, child) => {
+			const subject = isInside(parent, child);
+			const resolved = isInside(path.resolve(parent), path.resolve(child));
+
+			// Assertions: `path.relative` resolves its arguments anyway, so resolution is a no-op for the predicate.
+			assert.equal(subject, resolved);
+		}),
+	);
+});
+
+test("when_a_session_id_is_repaired_then_the_result_is_a_valid_single_segment", () => {
+	// Setup: valid IDs, separators, traversal, empty input, unicode, and very long strings.
+
+	// Execution: sanitize each generated ID.
+	fc.assert(
+		fc.property(rawSessionIDArb, (sessionID) => {
+			const subject = sessionSegment(sessionID);
+
+			// Assertions: every result is a non-empty `ses`-prefixed single path segment. The extra checks keep the
+			// property falsifiable even if `isSessionSegment` itself became permissive.
+			assert.equal(isSessionSegment(subject), true);
+			assert.equal(subject.includes(path.sep), false);
+			assert.notEqual(subject, "");
+			assert.equal(subject.startsWith("ses"), true);
+		}),
+	);
+});
+
+test("when_a_session_id_is_already_valid_then_it_is_used_verbatim", () => {
+	// Setup: IDs that satisfy the documented pattern by construction.
+
+	// Execution: validate and sanitize each one.
+	fc.assert(
+		fc.property(validSegmentArb, (sessionID) => {
+			// Assertions: validation accepts them and sanitization is the identity.
+			assert.equal(isSessionSegment(sessionID), true);
+			assert.equal(sessionSegment(sessionID), sessionID);
+		}),
+	);
+});
+
+test("when_a_slug_is_derived_then_it_is_well_formed", () => {
+	// Setup: arbitrary location directories and project IDs.
+
+	// Execution: derive a slug for each generated pair.
+	fc.assert(
+		fc.property(pathArb, projectIDArb, (directory, projectID) => {
+			const subject = projectSlug(directory, projectID);
+			const parts = splitSlug(subject);
+
+			// Assertions: the 7-character base32 suffix, restricted readable part, and byte cap all hold.
+			assert.match(parts.hash, /^[a-z2-7]{7}$/);
+			assert.match(parts.readable, /^[A-Za-z0-9_-]+$/);
+			assert.equal(parts.readable.length <= 48, true);
+			assert.equal(Buffer.byteLength(subject, "utf8") <= 56, true);
+			assert.equal(subject.includes(path.sep), false);
+			assert.equal(subject.split("_").includes(".."), false);
+		}),
+	);
+});
+
+test("when_a_directory_spelling_resolves_through_dot_segments_then_the_slug_is_unchanged", () => {
+	// Setup: a plain absolute path and a spelling that reaches it through `ignored/..`.
+	const dottedPairArb = fc
+		.tuple(absolutePathArb, safeSegmentArb, projectIDArb)
+		.map(([base, segment, projectID]) => ({
+			plain: path.join(base, segment),
+			dotted: `${base}${path.sep}ignored${path.sep}..${path.sep}${segment}`,
+			projectID,
+		}));
+
+	// Execution: derive the slug from both spellings.
+	fc.assert(
+		fc.property(dottedPairArb, ({ plain, dotted, projectID }) => {
+			const subject = projectSlug(dotted, projectID);
+
+			// Assertions: resolution happens before readability and hashing.
+			assert.equal(subject, projectSlug(plain, projectID));
+			assert.equal(subject, projectSlug(path.resolve(dotted), projectID));
+		}),
+	);
+});
+
+test("when_many_sessions_are_resolved_then_each_session_directory_is_a_strict_descendant_of_its_project_directory", () => {
+	// Setup: an array of generated sessions with mixed IDs, projects, and location directories.
+	const sessionsArb = fc.array(sessionArb, { minLength: 0, maxLength: 12 });
+
+	// Execution: resolve every layout under a fixed lexical root.
+	fc.assert(
+		fc.property(sessionsArb, (sessions) => {
+			const subjects = sessions.map((session) =>
+				resolveLayout(fixedRoot, session),
+			);
+
+			// Assertions: both directories sit under the injected root, compose as documented, and the last
+			// segment is the validated session ID.
+			for (const [index, subject] of subjects.entries()) {
+				const segment = sessionSegment(sessions[index]?.sessionID ?? "");
+				assert.equal(isInside(fixedRoot, subject.projectDir), true);
+				assert.equal(isInside(fixedRoot, subject.sessionDir), true);
+				assert.equal(
+					subject.projectDir,
+					path.join(fixedRoot, subject.projectSlug),
+				);
+				assert.equal(
+					subject.sessionDir,
+					path.join(subject.projectDir, segment),
+				);
+				assert.equal(isInside(subject.projectDir, subject.sessionDir), true);
+			}
+		}),
+	);
+});
+
+test("when_many_sessions_are_resolved_then_no_session_directory_contains_another", () => {
+	// Setup: an array of generated sessions, plus one session spread over many project directories.
+	const sessionsArb = fc.array(sessionArb, { minLength: 0, maxLength: 12 });
+	const spreadArb = fc
+		.tuple(rawSessionIDArb, fc.array(projectIDArb), fc.array(pathArb))
+		.map(([sessionID, projectIDs, directories]) =>
+			projectIDs.map((projectID, index) => ({
+				sessionID,
+				projectID,
+				location: {
+					directory: directories[index % Math.max(directories.length, 1)] ?? "",
+				},
+			})),
+		);
+
+	// Execution: resolve every layout in both groups.
+	fc.assert(
+		fc.property(sessionsArb, spreadArb, (sessions, spread) => {
+			const subjects = [...sessions, ...spread].map((session) =>
+				resolveLayout(fixedRoot, session),
+			);
+
+			// Assertions: every directory stays under the injected root and no session directory is a strict
+			// descendant of another. Strict containment already excludes equality, so no identity skip is needed.
+			for (const first of subjects) {
+				assert.equal(isInside(fixedRoot, first.sessionDir), true);
+				for (const second of subjects) {
+					assert.equal(isInside(first.sessionDir, second.sessionDir), false);
+				}
+			}
+		}),
+	);
 });

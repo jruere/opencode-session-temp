@@ -86,9 +86,10 @@ matters: on macOS `/tmp` is a symlink to `/private/tmp`, and the plugin must com
 | Invalid session ID | Sanitized plus hash; slash, `..`, and empty input are rejected |
 | Determinism | The same session and project produce the same path across calls |
 
-Add property tests for two invariants: a generated session directory is always a strict descendant of its project
-directory, and no session's directory is inside another session's directory. These catch prefix and traversal bugs that
-table tests miss.
+Generated property cases in `layout.test.ts` cover two invariants: a generated session directory is always a strict
+descendant of its project directory, and no session's directory is inside another session's directory. The generator
+supplies the nested `location.directory` and `projectID` that `resolveLayout` actually reads, and the assertions check
+the injected root boundary. These catch prefix and traversal bugs that table tests miss.
 
 ### `instructions.test.ts`
 
@@ -305,8 +306,11 @@ concurrent sessions are testable state here and have no analogue there.
 
 ## Coverage
 
-Target 80% for lines, functions, and branches in `src/`. Run `devenv tasks run test:coverage` (or
-`npm run test:coverage`); the thresholds are defined in both `devenv.nix` and `package.json`.
+Target 80% for lines, functions, and branches in `src/`; the thresholds are defined in both `devenv.nix` and
+`package.json`. `devenv test` includes `test:coverage`, so every full pass checks them. The `dot` reporter keeps the
+coverage table hidden when the thresholds hold and prints it, with the failing metrics, only on a violation. The
+standalone `devenv tasks run test:coverage` (or `npm run test:coverage`) does the same check without the other tasks.
+For the same tests without coverage, use `devenv tasks run test:unit` (or `npm test`).
 
 Do not chase 100%. The untested remainder should be defensive logging and timer wiring, and that should be visible in
 the suite headers.
