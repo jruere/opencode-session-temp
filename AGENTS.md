@@ -38,3 +38,8 @@
 - Enforce writes in `ctx.permission.hook("evaluate")` for `edit`/`write`/`patch`; keep reads open. Shell is deliberately not intercepted.
 - Module responsibilities are listed in `README.md` under Development. Update that list when a module changes; do not
   restate it here.
+
+## Tools
+
+- npx does not work.
+- Prefer the read tool to sed.
