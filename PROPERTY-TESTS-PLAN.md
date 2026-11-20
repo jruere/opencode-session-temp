@@ -15,8 +15,8 @@ effectively verifies them exhaustively.
 | `src/layout.ts` | `isInside`, `sessionSegment`, `isSessionSegment`, `projectSlug`, `resolveLayout` | Done in `test/layout.test.ts` |
 | `src/enforce.ts` | `evaluateEdit`, `evaluateExternal`, `applyPermission` | Done in `test/enforce.test.ts` |
 | `src/instructions.ts` | `rewriteInstructions` and the `replaceRoot` boundary logic | Done in `test/instructions.test.ts` |
-| `src/sweep.ts` | `isStale`, `entryKind`, `childRole`, `decideEntry` | Next |
-| `src/logging.ts` | `warnOnce` | Planned |
+| `src/sweep.ts` | `isStale`, `entryKind`, `childRole`, `decideEntry` | Done (pure policy) in `test/sweep.test.ts` |
+| `src/logging.ts` | `warnOnce` | Next |
 | `src/index.ts` | `parseOptions`, `createSessionResolver` | Optional, higher effort |
 
 ## Tooling and conventions
@@ -128,29 +128,40 @@ scanner, which skips the interior of a rejected occurrence.
 These protect the prompt cache and the model-visible instruction from a second appended fallback, a missed in-place
 rewrite, or a prefix-corrupting replacement.
 
-## Next: `src/sweep.ts`
+## Done: `src/sweep.ts`
 
-Functions: `isStale`, `entryKind`, `childRole`, `decideEntry`. Their domains are small and finite, so a generator acts
-as exhaustive verification of the pure policy.
+Functions: `isStale`, `entryKind`, `childRole`, `decideEntry`. Their decision domains are small and discrete, so the
+generated cases cover the policy densely rather than only at hand-picked examples. They live alongside the real-tree
+cases in `test/sweep.test.ts`; the four table-driven policy tables they subsume were removed as duplicates.
 
-- `isStale` is symmetric in `atime` and `mtime` and monotone in the cutoff. An entry exactly at the cutoff is fresh.
+Covered laws:
+
+- `isStale` is symmetric in `atime` and `mtime`, true when both times are strictly before the cutoff, false when
+  either time is at or after it, and monotone in the cutoff.
 - `entryKind` follows the priority directory, then symlink, then file, then other, when several `lstat` booleans are
   true, and is deterministic for every boolean combination.
 - `childRole` returns `session` for a project child exactly when `isSessionSegment(name)` holds, `outside` otherwise,
   and always `nested` for a session child.
-- `decideEntry` never sets both `traverse` and `remove`. `remove` implies a stale file or symlink in session or nested
-  scope. `traverse` implies a directory outside `outside` scope. Both flags are monotone in `stale`.
+- `decideEntry` never sets both `traverse` and `remove`. `traverse` is exactly a directory outside `outside` scope;
+  `remove` is exactly a stale file or symlink in session or nested scope. The exact formulas make both flags monotone
+  in `stale`, so monotonicity has no separate assertion.
 
-A generated filesystem tree with a fixed `now` can then check the composed policy end to end: the sweep removes the
-stale session and nested regular files and symlinks the policy selects and nothing else, then prunes directories that
-become empty bottom-up, including fresh empty session and project directories. Keep that part separate from the pure
-policy properties so real filesystem behavior stays in `sweep.test.ts`.
+The real-tree cases remain example-based: they pin the documented filesystem behavior, races, and partial failures.
+A generated tree that exercises the walker end to end is left as the optional follow-up below.
 
-## Planned: `src/logging.ts`
+## Next: `src/logging.ts`
 
 Function: `warnOnce`. Generate sequences of warning kinds with `fc.array(fc.constantFrom(...warnKinds))` and assert
 that each kind is logged at most once, exactly once if it occurs in the sequence, and in order of first appearance.
 This protects the "warn once per plugin instance per kind" rule in `README.md` against a refactor of the dedup state.
+
+## Optional: generated sweep tree
+
+A generated filesystem tree with a fixed `now` could check the composed policy end to end: the sweep removes the stale
+session and nested regular files and symlinks the policy selects and nothing else, then prunes directories that become
+empty bottom-up, including fresh empty session and project directories. Keep it separate from the pure policy
+properties so real filesystem behavior stays in `sweep.test.ts`. It is lower priority than `warnOnce` because the
+walker is already covered by the real-tree examples and the policy is verified separately.
 
 ## Optional: `src/index.ts`
 

@@ -1,9 +1,12 @@
 /**
  * Covers age-based cleanup from README "Cleanup": the strict atime/mtime predicate, bottom-up pruning, symlink and
- * special-file handling, race tolerance, partial failure, and the hourly timer.
+ * special-file handling, race tolerance, partial failure, and the hourly timer. Filesystem cases pin documented
+ * examples and real tree behavior; generated cases check the pure policy (`isStale`, `entryKind`, `childRole`,
+ * `decideEntry`) with boundary-biased inputs.
  *
- * Does not cover lifecycle events, the subscription loop (M5), or option parsing (M6). Every test uses a fresh real
- * temporary root, a fixed clock, and `utimes`/`lutimes`; no test waits for a real timer.
+ * Does not cover lifecycle events, the subscription loop (M5), or option parsing (M6). Every filesystem test uses a
+ * fresh real temporary root, a fixed clock, and `utimes`/`lutimes`; no test waits for a real timer. The generated
+ * cases are pure and do not build a filesystem tree.
  */
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
@@ -20,11 +23,12 @@ import {
 import path from "node:path";
 import { type TestContext, test } from "node:test";
 import { format, promisify } from "node:util";
+import fc from "fast-check";
+import { isSessionSegment } from "../src/layout.ts";
 import type { Logger } from "../src/logging.ts";
 import {
 	childRole,
 	decideEntry,
-	type EntryDecision,
 	type EntryKind,
 	type EntryRole,
 	entryKind,
@@ -171,12 +175,10 @@ test("when_both_times_equal_the_cutoff_then_it_keeps_the_file", async (t) => {
 	await writeAt(file, cutoffTime, cutoffTime);
 	const { logger } = makeLogger();
 
-	// Execution: compare the predicate and sweep the tree.
-	const predicate = isStale({ atimeMs: cutoffMs, mtimeMs: cutoffMs }, cutoffMs);
+	// Execution: sweep the tree.
 	await sweep(root, logger);
 
-	// Assertions: only values strictly older than the cutoff are stale.
-	assert.equal(predicate, false);
+	// Assertions: an entry exactly at the cutoff is fresh and kept.
 	assert.equal(await exists(file), true);
 });
 
@@ -539,125 +541,216 @@ test("when_a_timer_tick_rejects_then_the_error_is_logged_and_the_timer_survives"
 	assert.notEqual(timers.cleared(), undefined);
 });
 
-test("when_entry_kind_is_mapped_then_it_reports_the_right_kind", () => {
-	// Setup: plain booleans for each kind.
-	const cases: Array<{
-		input: { isDirectory: boolean; isFile: boolean; isSymbolicLink: boolean };
-		expected: EntryKind;
-	}> = [
-		{
-			input: { isDirectory: true, isFile: false, isSymbolicLink: false },
-			expected: "directory",
-		},
-		{
-			input: { isDirectory: false, isFile: true, isSymbolicLink: false },
-			expected: "file",
-		},
-		{
-			input: { isDirectory: false, isFile: false, isSymbolicLink: true },
-			expected: "symlink",
-		},
-		{
-			input: { isDirectory: false, isFile: false, isSymbolicLink: false },
-			expected: "other",
-		},
-	];
+// ---------------------------------------------------------------------------
+// Generated properties
+// ---------------------------------------------------------------------------
+// The filesystem cases above pin documented examples and races. The properties below check the pure policy with
+// boundary-biased inputs: the strict cutoff rule, the `lstat` kind priority, name-scope classification, and the
+// decision matrix. No generated case touches the filesystem.
 
-	// Execution: map each case.
-	for (const { input, expected } of cases) {
-		const subject = entryKind(input);
-
-		// Assertions: the symlink check wins over file, and specials fall through to other.
-		assert.equal(subject, expected);
-	}
+/** Times and cutoffs around a signed range, so ordering and equality are both generated. */
+const timeArb = fc.integer({
+	min: -2_000_000_000_000,
+	max: 2_000_000_000_000,
+});
+const cutoffArb = fc.integer({
+	min: -1_000_000_000_000,
+	max: 1_000_000_000_000,
+});
+const nonNegativeDeltaArb = fc.integer({
+	min: 0,
+	max: 1_000_000_000_000,
 });
 
-test("when_child_role_is_resolved_then_scope_matches_the_name_shape", () => {
-	// Setup: project and session parents with scoped and unscoped names.
-	const cases: Array<{
-		input: { parent: "project" | "session"; name: string };
-		expected: EntryRole;
-	}> = [
-		{ input: { parent: "project", name: "ses_A" }, expected: "session" },
-		{ input: { parent: "project", name: "shared" }, expected: "outside" },
-		{ input: { parent: "session", name: "anything" }, expected: "nested" },
-	];
+test("when_access_and_modification_times_are_swapped_then_staleness_is_unchanged", () => {
+	// Setup: arbitrary times and cutoffs.
 
-	// Execution: classify each child.
-	for (const { input, expected } of cases) {
-		const subject = childRole(input);
+	// Execution: compare each entry with its two times swapped.
+	fc.assert(
+		fc.property(timeArb, timeArb, cutoffArb, (atimeMs, mtimeMs, cutoffMs) => {
+			const original = isStale({ atimeMs, mtimeMs }, cutoffMs);
+			const subject = isStale({ atimeMs: mtimeMs, mtimeMs: atimeMs }, cutoffMs);
 
-		// Assertions: only `ses_*` under a project is scoped.
-		assert.equal(subject, expected);
-	}
+			// Assertions: only the older of the two times decides.
+			assert.equal(subject, original);
+		}),
+	);
 });
 
-test("when_a_nested_entry_is_evaluated_then_only_stale_files_and_symlinks_are_removed", () => {
-	// Setup: an exhaustive policy matrix for nested scope.
-	const cases: Array<{
-		input: { kind: EntryKind; stale: boolean };
-		expected: EntryDecision;
-	}> = [
-		{
-			input: { kind: "directory", stale: true },
-			expected: { traverse: true, remove: false },
-		},
-		{
-			input: { kind: "directory", stale: false },
-			expected: { traverse: true, remove: false },
-		},
-		{
-			input: { kind: "file", stale: true },
-			expected: { traverse: false, remove: true },
-		},
-		{
-			input: { kind: "file", stale: false },
-			expected: { traverse: false, remove: false },
-		},
-		{
-			input: { kind: "symlink", stale: true },
-			expected: { traverse: false, remove: true },
-		},
-		{
-			input: { kind: "symlink", stale: false },
-			expected: { traverse: false, remove: false },
-		},
-		{
-			input: { kind: "other", stale: true },
-			expected: { traverse: false, remove: false },
-		},
-		{
-			input: { kind: "other", stale: false },
-			expected: { traverse: false, remove: false },
-		},
-	];
+test("when_both_times_are_strictly_before_the_cutoff_then_the_entry_is_stale", () => {
+	// Setup: a cutoff and two positive offsets, so both times are strictly older.
 
-	// Execution: decide each case.
-	for (const { input, expected } of cases) {
-		const subject = decideEntry({ ...input, role: "nested" });
+	// Execution: classify each generated triple.
+	fc.assert(
+		fc.property(
+			cutoffArb,
+			fc.integer({ min: 1, max: 1_000_000_000_000 }),
+			fc.integer({ min: 1, max: 1_000_000_000_000 }),
+			(cutoffMs, atimeOffset, mtimeOffset) => {
+				const subject = isStale(
+					{
+						atimeMs: cutoffMs - atimeOffset,
+						mtimeMs: cutoffMs - mtimeOffset,
+					},
+					cutoffMs,
+				);
 
-		// Assertions: traverse is kind-driven, remove is stale file/symlink only.
-		assert.deepEqual(subject, expected);
-	}
+				// Assertions: the strict rule makes any older pair stale.
+				assert.equal(subject, true);
+			},
+		),
+	);
 });
 
-test("when_a_project_leaf_is_evaluated_then_it_is_never_removed", () => {
-	// Setup: a project-scoped leaf that looks stale and removable on kind alone.
-	const cases: Array<{ kind: EntryKind; stale: boolean }> = [
-		{ kind: "file", stale: true },
-		{ kind: "symlink", stale: true },
-		{ kind: "file", stale: false },
-		{ kind: "directory", stale: true },
-	];
+test("when_either_time_is_at_or_after_the_cutoff_then_the_entry_is_fresh", () => {
+	// Setup: one time at or after the cutoff and the other at or before it.
 
-	// Execution: decide each case under the project role.
-	for (const input of cases) {
-		const subject = decideEntry({ ...input, role: "project" });
+	// Execution: classify each generated pair in both assignments.
+	fc.assert(
+		fc.property(
+			cutoffArb,
+			nonNegativeDeltaArb,
+			nonNegativeDeltaArb,
+			fc.boolean(),
+			(cutoffMs, atimeOffset, mtimeOffset, atimeIsNewer) => {
+				const older = cutoffMs - atimeOffset;
+				const newer = cutoffMs + mtimeOffset;
+				const subject = isStale(
+					{
+						atimeMs: atimeIsNewer ? newer : older,
+						mtimeMs: atimeIsNewer ? older : newer,
+					},
+					cutoffMs,
+				);
 
-		// Assertions: scope vetoes removal; only directories traveroject" });
+				// Assertions: a time at the cutoff is fresh, and so is any later time.
+				assert.equal(subject, false);
+			},
+		),
+	);
+});
 
-		// Assertions: scope vetoes removal; only directories traverse.
-		assert.deepEqual(subject.remove, false);
-		assert.deepEqual(subject.traverse, input.kind === "directory");
-	}
+test("when_the_cutoff_moves_later_then_staleness_is_monotone", () => {
+	// Setup: arbitrary times and two cutoffs where the second is not earlier.
+
+	// Execution: classify each entry against both cutoffs.
+	fc.assert(
+		fc.property(
+			timeArb,
+			timeArb,
+			cutoffArb,
+			nonNegativeDeltaArb,
+			(atimeMs, mtimeMs, cutoffMs, deltaMs) => {
+				const original = isStale({ atimeMs, mtimeMs }, cutoffMs);
+				const subject = isStale({ atimeMs, mtimeMs }, cutoffMs + deltaMs);
+
+				// Assertions: a stale entry stays stale when the cutoff moves later.
+				assert.ok(!original || subject);
+			},
+		),
+	);
+});
+
+interface LstatFlags {
+	readonly isDirectory: boolean;
+	readonly isFile: boolean;
+	readonly isSymbolicLink: boolean;
+}
+
+const lstatFlagsArb: fc.Arbitrary<LstatFlags> = fc.record({
+	isDirectory: fc.boolean(),
+	isFile: fc.boolean(),
+	isSymbolicLink: fc.boolean(),
+});
+
+function expectedKind(flags: LstatFlags): EntryKind {
+	if (flags.isDirectory) return "directory";
+	if (flags.isSymbolicLink) return "symlink";
+	if (flags.isFile) return "file";
+	return "other";
+}
+
+test("when_lstat_flags_overlap_then_the_kind_follows_the_directory_symlink_file_priority", () => {
+	// Setup: every combination of the three booleans that `lstat` can report.
+
+	// Execution: map each combination twice.
+	fc.assert(
+		fc.property(lstatFlagsArb, (flags) => {
+			const subject = entryKind(flags);
+			const repeated = entryKind(flags);
+
+			// Assertions: the first true flag in priority order wins, and the mapping is deterministic.
+			assert.equal(subject, expectedKind(flags));
+			assert.equal(repeated, subject);
+		}),
+	);
+});
+
+const entryKinds = [
+	"directory",
+	"file",
+	"symlink",
+	"other",
+] as const satisfies readonly EntryKind[];
+const entryRoles = [
+	"project",
+	"session",
+	"nested",
+	"outside",
+] as const satisfies readonly EntryRole[];
+const entryKindArb = fc.constantFrom(...entryKinds);
+const entryRoleArb = fc.constantFrom(...entryRoles);
+const childParentArb = fc.constantFrom("project", "session");
+
+/** Names biased toward the session-pattern boundary and away from it. */
+const childNameArb = fc.oneof(
+	fc.string(),
+	fc.stringMatching(/^ses[A-Za-z0-9._-]+$/),
+	fc.constantFrom("ses", `ses${path.sep}`, "..", "", "SES_upper", "shared"),
+);
+
+test("when_a_child_is_classified_then_project_scope_uses_the_session_pattern_and_session_scope_is_nested", () => {
+	// Setup: both parent scopes and names on either side of the session pattern.
+
+	// Execution: classify each child twice.
+	fc.assert(
+		fc.property(childParentArb, childNameArb, (parent, name) => {
+			const subject = childRole({ parent, name });
+			let expected: EntryRole;
+			if (parent === "session") expected = "nested";
+			else expected = isSessionSegment(name) ? "session" : "outside";
+
+			// Assertions: only project children named like sessions are scoped; every session child is nested.
+			assert.equal(subject, expected);
+			assert.equal(childRole({ parent, name }), subject);
+		}),
+	);
+});
+
+const decisionInputArb = fc.record({
+	kind: entryKindArb,
+	role: entryRoleArb,
+	stale: fc.boolean(),
+});
+
+test("when_an_entry_is_decided_then_traverse_and_remove_follow_the_scope_policy", () => {
+	// Setup: every kind, role, and staleness combination.
+
+	// Execution: decide each entry.
+	fc.assert(
+		fc.property(decisionInputArb, (input) => {
+			const subject = decideEntry(input);
+			const leaf = input.kind === "file" || input.kind === "symlink";
+			const scoped = input.role === "session" || input.role === "nested";
+
+			// Assertions: traversal is directory-only and scope-gated; removal is leaf-only, scoped, and stale.
+			// These exact formulas also make both flags monotone in `stale`, so that law has no separate assertion.
+			assert.equal(
+				subject.traverse,
+				input.kind === "directory" && input.role !== "outside",
+			);
+			assert.equal(subject.remove, leaf && scoped && input.stale);
+			assert.equal(subject.traverse && subject.remove, false);
+		}),
+	);
 });
