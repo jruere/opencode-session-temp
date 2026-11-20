@@ -196,17 +196,62 @@ ignoring `enforce` or `root` would defeat the plugin's only enforcement.
 
 ## Install
 
+### 1. Clone and install dependencies
+
+You need git and a JavaScript package manager. The repository uses npm, which needs Node.js 24 or newer, the version
+in `engines`.
+
+```sh
+git clone https://github.com/jruere/opencode-session-temp.git
+cd opencode-session-temp
+npm ci --omit=dev
+```
+
+Use `git@github.com:jruere/opencode-session-temp.git` instead if you authenticate with SSH.
+
+To use automatic discovery, clone into the plugins directory instead:
+
+```sh
+git clone https://github.com/jruere/opencode-session-temp.git ~/.config/opencode/plugins/opencode-session-temp
+cd ~/.config/opencode/plugins/opencode-session-temp
+npm ci --omit=dev
+```
+
+`npm ci` removes the existing `node_modules` and installs the exact versions in `package-lock.json`; `--omit=dev`
+skips test-only dependencies. Drop `--omit=dev` if you also want to run the tests. OpenCode imports the TypeScript
+entry directly, so there is no build step.
+
+With Bun instead of npm:
+
+```sh
+bun install --production
+```
+
+Bun reads the existing `package-lock.json` and installs the same versions without creating a `bun.lock`.
+`--production` skips test-only dependencies and implies `--frozen-lockfile`, so the install is reproducible.
+
+### 2. Register the plugin
+
+Add an entry to the global `~/.config/opencode/opencode.jsonc`, or to a project's `opencode.jsonc` or
+`.opencode/opencode.jsonc`:
+
 ```jsonc
 {
   "$schema": "https://opencode.ai/config.json",
   "plugins": [
     {
-      "package": "/absolute/path/to/opencode/plugins/opencode-session-temp",
+      "package": "/absolute/path/to/opencode-session-temp",
       "options": { "enforce": "deny" },
     },
   ],
 }
 ```
+
+A relative `package` resolves from the config file that contains the entry, but an absolute path avoids ambiguity.
+Plugin arrays from every applicable config file are combined, from lowest to highest precedence.
+
+A plugin directory under `~/.config/opencode/plugins/` or `.opencode/plugins/` loads automatically without an entry, so
+skip this step if you cloned into the global plugins directory. Use the object form above when you need options.
 
 The V2 server part imports `Plugin` from `@opencode/plugin`, not the V1 `@opencode-ai/plugin` package. The package
 entry may be any absolute directory. A directory with a `package.json` must expose the server part, normally
@@ -222,7 +267,22 @@ documents intent:
 }
 ```
 
-Config changes reload plugins without a restart.
+### Update and remove
+
+Update a clone and restart the background service so the server picks up the new files:
+
+```sh
+git pull --ff-only
+npm ci --omit=dev
+opencode service restart
+```
+
+If you installed with Bun, run `bun install --production` instead of `npm ci`. Config changes reload plugins
+automatically. A source change still needs the restart.
+
+To uninstall, remove the `plugins` entry, or remove the directory that OpenCode discovered automatically, then restart
+the service. Delete the scratch root to remove leftover files; the sweep only expires files, and lifecycle cleanup only
+removes directories for deleted sessions.
 
 ## Relationship to existing options
 
